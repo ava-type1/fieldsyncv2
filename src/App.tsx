@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { useAuth } from './hooks/useAuth';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { Login } from './pages/auth/Login';
@@ -27,6 +29,14 @@ import { InstallPrompt, UpdatePrompt } from './components/pwa';
 // Wrapper component that shows landing page for guests, app for logged-in users
 function HomeRoute() {
   const { user, isInitialized } = useAuthStore();
+  const { initializeAuth } = useAuth();
+
+  // Initialize auth on mount
+  useEffect(() => {
+    if (!isInitialized) {
+      initializeAuth();
+    }
+  }, [isInitialized, initializeAuth]);
 
   // Show loading while auth initializes
   if (!isInitialized) {
