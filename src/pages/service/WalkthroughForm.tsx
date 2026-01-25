@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Plus, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Plus, AlertTriangle, Bell, CheckCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { PhotoCapture } from '../../components/photos/PhotoCapture';
@@ -8,27 +8,68 @@ import { PhotoGrid } from '../../components/photos/PhotoGrid';
 import { IssueForm } from '../../components/issues/IssueForm';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
-import type { Phase, Issue, Photo, ChecklistItem } from '../../types';
+import { useNotifications } from '../../hooks/useNotifications';
+import type { Phase, Issue, Photo, ChecklistItem, Property, Customer } from '../../types';
 
 export function WalkthroughForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, organization } = useAuthStore();
+  const { sendWalkthroughScheduled, sendPhaseComplete } = useNotifications();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [phase, setPhase] = useState<Phase | null>(null);
+  const [property, setProperty] = useState<Property | null>(null);
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [notes, setNotes] = useState('');
   const [showIssueForm, setShowIssueForm] = useState(false);
+  const [notificationSent, setNotificationSent] = useState(false);
 
   useEffect(() => {
     async function fetchPhase() {
       if (!id) return;
 
       try {
+        // Fetch property with customer data for notifications
+        const { data: propertyData } = await supabase
+          .from('properties')
+          .select(`*, customer:customers(*)`)
+          .eq('id', id)
+          .single();
+
+        if (propertyData) {
+          const transformedProperty: Property = {
+            id: propertyData.id,
+            street: propertyData.street,
+            unit: propertyData.unit,
+            city: propertyData.city,
+            state: propertyData.state,
+            zip: propertyData.zip,
+            customerId: propertyData.customer_id,
+            customer: propertyData.customer ? {
+              id: propertyData.customer.id,
+              organizationId: propertyData.customer.organization_id,
+              firstName: propertyData.customer.first_name,
+              lastName: propertyData.customer.last_name,
+              phone: propertyData.customer.phone,
+              email: propertyData.customer.email,
+              preferredContact: propertyData.customer.preferred_contact,
+              createdAt: propertyData.customer.created_at,
+              updatedAt: propertyData.customer.updated_at,
+            } : undefined,
+            manufacturer: propertyData.manufacturer,
+            overallStatus: propertyData.overall_status,
+            dealershipId: propertyData.dealership_id,
+            createdByOrgId: propertyData.created_by_org_id,
+            createdAt: propertyData.created_at,
+            updatedAt: propertyData.updated_at,
+          };
+          setProperty(transformedProperty);
+        }
+
         // Fetch the walkthrough phase for this property
         const { data, error } = await supabase
           .from('phases')
@@ -184,6 +225,16 @@ export function WalkthroughForm() {
             completed_by_user_id: user?.id,
           })
           .eq('id', phase.id);
+
+        // Send phase complete notification
+        if (property?.customer) {
+          try {
+            await sendPhaseComplete(property, phase);
+            setNotificationSent(true);
+          } catch (err) {
+            console.error('Failed to send phase complete notification:', err);
+          }
+        }
       }
 
       // Save any new issues
@@ -225,7 +276,15 @@ export function WalkthroughForm() {
           <ChevronLeft className="w-5 h-5" />
           Back
         </button>
-        <h1 className="text-xl font-bold text-gray-900 mt-2">Walk-Through</h1>
+        <div className="flex items-center justify-between mt-2">
+          <h1 className="text-xl font-bold text-gray-900">Walk-Through</h1>
+          {property?.customer?.phone && (
+            <div className="flex items-center gap-1 text-sm text-gray-500">
+              <Bell className="w-4 h-4" />
+              <span>SMS enabled</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Checklist Section */}

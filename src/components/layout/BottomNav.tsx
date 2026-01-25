@@ -1,12 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { Home, MapPin, Package, LayoutDashboard } from 'lucide-react';
+import { Home, MapPin, Package, LayoutDashboard, Settings } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 
 export function BottomNav() {
   const isManager = useAuthStore((state) => state.isManager());
 
   const navItems = [
-    { to: '/', icon: Home, label: 'Properties' },
+    { to: '/properties', icon: Home, label: 'Properties' },
     { to: '/map', icon: MapPin, label: 'Map' },
     { to: '/materials', icon: Package, label: 'Materials' },
   ];
@@ -14,6 +14,9 @@ export function BottomNav() {
   if (isManager) {
     navItems.push({ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' });
   }
+  
+  // Always add settings at the end
+  navItems.push({ to: '/settings', icon: Settings, label: 'Settings' });
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t pb-safe z-10">

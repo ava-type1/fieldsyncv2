@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable icon with safe zone (80% inner area) -->
+  <rect width="512" height="512" fill="#2563eb"/>
+  <!-- Inner safe zone starts at 51.2 (10%) and ends at 460.8 -->
+  <text x="256" y="290" font-size="180" font-family="Arial, sans-serif" font-weight="bold" fill="white" text-anchor="middle">FS</text>
+</svg>

@@ -126,6 +126,7 @@ function transformSupabaseProperties(data: Record<string, unknown>[]): PropertyW
     currentPhase: p.current_phase as string | undefined,
     dealershipId: p.dealership_id as string,
     createdByOrgId: p.created_by_org_id as string,
+    portalCode: p.portal_code as string | undefined,
     createdAt: p.created_at as string,
     updatedAt: p.updated_at as string,
     phases: ((p.phases as Record<string, unknown>[]) || [])

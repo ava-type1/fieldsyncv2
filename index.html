@@ -7,16 +7,37 @@
 
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#2563eb" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1e40af" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="FieldSync" />
     <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.svg" />
+    <link rel="mask-icon" href="/icons/icon-maskable.svg" color="#2563eb" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Description -->
-    <meta name="description" content="Property lifecycle management for manufactured housing" />
+    <!-- Mobile Specific -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-TileColor" content="#2563eb" />
+    <meta name="msapplication-tap-highlight" content="no" />
+
+    <!-- SEO & Social -->
+    <meta name="description" content="Property lifecycle management for manufactured housing - manage walkthroughs, track materials, and coordinate field service teams" />
+    <meta name="author" content="FieldSync" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="FieldSync" />
+    <meta property="og:description" content="Property lifecycle management for manufactured housing" />
+    <meta property="og:image" content="/icons/icon-512.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="FieldSync" />
+    <meta name="twitter:description" content="Property lifecycle management for manufactured housing" />
 
     <title>FieldSync</title>
+
+    <!-- Preconnect to API -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>
   <body>
     <div id="root"></div>

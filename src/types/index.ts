@@ -109,6 +109,7 @@ export interface Property {
   phases?: Phase[];
   issues?: Issue[];
   materialsLists?: MaterialsList[];
+  portalCode?: string; // Unique shareable code for customer portal access
   createdAt: string;
   updatedAt: string;
 }
