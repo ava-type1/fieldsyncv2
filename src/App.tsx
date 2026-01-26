@@ -12,6 +12,7 @@ import { PropertyList } from './pages/properties/PropertyList';
 import { PropertyDetail } from './pages/properties/PropertyDetail';
 import { WalkthroughForm } from './pages/service/WalkthroughForm';
 import { WalkthroughChecklist } from './pages/service/WalkthroughChecklist';
+import { PayCalculator } from './pages/pay/PayCalculator';
 import { MaterialsList } from './pages/materials/MaterialsList';
 import { Dashboard } from './pages/manager/Dashboard';
 import { ReviewWalkthrough } from './pages/manager/ReviewWalkthrough';
@@ -105,6 +106,7 @@ export default function App() {
         <Route path="/map" element={<MapView />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/dashboard/review/:id" element={<ReviewWalkthrough />} />
+        <Route path="/pay" element={<PayCalculator />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/profile" element={<ProfileSettings />} />
         <Route path="/settings/organization" element={<OrganizationSettings />} />
