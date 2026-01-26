@@ -7,7 +7,9 @@ import {
   AlertCircle, 
   Camera,
   X,
-  Save
+  Save,
+  FileText,
+  Package
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -16,6 +18,7 @@ import { PhotoCapture } from '../../components/photos/PhotoCapture';
 import { walkthroughChecklist, type ItemStatus, type ChecklistItemResult } from '../../data/walkthroughChecklist';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
+import { downloadWalkthroughPDF } from '../../utils/generateWalkthroughPDF';
 
 export function WalkthroughChecklist() {
   const { id: propertyId } = useParams<{ id: string }>();
@@ -108,22 +111,27 @@ export function WalkthroughChecklist() {
   
   const issueCount = Object.values(results).filter(r => r.status === 'issue').length;
 
-  const handleSave = async () => {
-    if (!propertyId || !user) return;
+  const handleSave = async (generatePDF = false, generateMaterials = false) => {
+    if (!propertyId || !user || !property) return;
     
     setSaving(true);
     try {
-      // Save walkthrough results to phases table or a new walkthrough_results table
-      // For now, we'll update the phase status and store results in notes
+      const completedAt = new Date().toISOString();
       
-      const issueItems = Object.values(results)
-        .filter(r => r.status === 'issue')
-        .map(r => {
+      // Get issue details
+      const issueItems = Object.entries(results)
+        .filter(([_, r]) => r.status === 'issue')
+        .map(([itemId, r]) => {
           const room = walkthroughChecklist.find(room => 
-            room.items.some(item => item.id === r.itemId)
+            room.items.some(item => item.id === itemId)
           );
-          const item = room?.items.find(i => i.id === r.itemId);
-          return `${room?.name} - ${item?.label}: ${r.notes || 'Issue noted'}`;
+          const item = room?.items.find(i => i.id === itemId);
+          return {
+            room: room?.name || '',
+            item: item?.label || '',
+            notes: r.notes || 'Issue noted',
+            itemId,
+          };
         });
 
       // Update the walkthrough phase
@@ -131,13 +139,13 @@ export function WalkthroughChecklist() {
         .from('phases')
         .update({
           status: 'completed',
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
           completed_by_user_id: user.id,
           notes: issueItems.length > 0 
-            ? `Issues found:\n${issueItems.join('\n')}`
+            ? `Issues found:\n${issueItems.map(i => `${i.room} - ${i.item}: ${i.notes}`).join('\n')}`
             : 'Walk-through complete. No issues found.',
           customer_signature_url: customerSignature,
-          customer_signed_at: customerSignature ? new Date().toISOString() : null,
+          customer_signed_at: customerSignature ? completedAt : null,
         })
         .eq('property_id', propertyId)
         .eq('type', 'Initial Walk-Through');
@@ -154,6 +162,53 @@ export function WalkthroughChecklist() {
           })
           .eq('property_id', propertyId)
           .eq('type', 'Return Work Order #1');
+      }
+
+      // Generate materials list from issues
+      if (generateMaterials && issueItems.length > 0) {
+        const materialsItems = issueItems.map((issue, index) => ({
+          name: `${issue.room} - ${issue.item}`,
+          description: issue.notes,
+          quantity: 1,
+          estimatedCost: null,
+          status: 'needed',
+        }));
+
+        await supabase
+          .from('materials_lists')
+          .insert({
+            property_id: propertyId,
+            created_by_user_id: user.id,
+            items: materialsItems,
+            total_estimated_cost: null,
+          });
+      }
+
+      // Fetch full property data for PDF
+      if (generatePDF) {
+        const { data: fullProperty } = await supabase
+          .from('properties')
+          .select('*, customer:customers(*)')
+          .eq('id', propertyId)
+          .single();
+
+        if (fullProperty) {
+          downloadWalkthroughPDF({
+            property: {
+              customerName: `${fullProperty.customer?.first_name || ''} ${fullProperty.customer?.last_name || ''}`,
+              address: fullProperty.street,
+              city: fullProperty.city,
+              state: fullProperty.state,
+              zip: fullProperty.zip,
+              serialNumber: fullProperty.serial_number,
+              model: fullProperty.model,
+            },
+            results,
+            customerSignature: customerSignature || undefined,
+            completedAt,
+            technicianName: user.fullName || user.email,
+          });
+        }
       }
 
       navigate(`/property/${propertyId}`);
@@ -335,20 +390,20 @@ export function WalkthroughChecklist() {
       </div>
 
       {/* Navigation Footer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4">
-        <div className="flex gap-3">
-          {currentRoomIndex > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => setCurrentRoomIndex(prev => prev - 1)}
-              className="flex-1"
-            >
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Previous
-            </Button>
-          )}
-          
-          {currentRoomIndex < totalRooms - 1 ? (
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 pb-safe">
+        {currentRoomIndex < totalRooms - 1 ? (
+          /* Room navigation */
+          <div className="flex gap-3">
+            {currentRoomIndex > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setCurrentRoomIndex(prev => prev - 1)}
+                className="flex-1"
+              >
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Previous
+              </Button>
+            )}
             <Button
               onClick={() => setCurrentRoomIndex(prev => prev + 1)}
               className="flex-1"
@@ -356,35 +411,70 @@ export function WalkthroughChecklist() {
               Next Room
               <ChevronRight className="w-4 h-4 ml-1" />
             </Button>
-          ) : (
-            <Button
-              onClick={() => setShowSignature(true)}
-              className="flex-1"
-              disabled={!customerSignature && issueCount === 0}
-            >
-              {customerSignature ? (
-                <>
-                  <Save className="w-4 h-4 mr-1" />
-                  Complete ({issueCount} issues)
-                </>
-              ) : (
-                <>
-                  Sign & Complete
-                  {issueCount > 0 && ` (${issueCount} issues)`}
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-        
-        {customerSignature && currentRoomIndex === totalRooms - 1 && (
-          <Button
-            onClick={handleSave}
-            loading={saving}
-            className="w-full mt-2"
-          >
-            Save Walk-Through
-          </Button>
+          </div>
+        ) : (
+          /* Final room - completion options */
+          <div className="space-y-3">
+            {!customerSignature ? (
+              /* Get signature first */
+              <Button
+                onClick={() => setShowSignature(true)}
+                className="w-full"
+              >
+                Get Customer Signature
+                {issueCount > 0 && ` (${issueCount} issues found)`}
+              </Button>
+            ) : (
+              /* Completion options after signature */
+              <>
+                <div className="text-center text-sm text-green-600 font-medium">
+                  ✓ Signature captured
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleSave(true, false)}
+                    loading={saving}
+                    className="flex items-center justify-center gap-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Save + PDF
+                  </Button>
+                  
+                  {issueCount > 0 && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleSave(false, true)}
+                      loading={saving}
+                      className="flex items-center justify-center gap-2"
+                    >
+                      <Package className="w-4 h-4" />
+                      + Materials
+                    </Button>
+                  )}
+                </div>
+                
+                <Button
+                  onClick={() => handleSave(true, issueCount > 0)}
+                  loading={saving}
+                  className="w-full"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save All ({issueCount} issues → PDF + Materials)
+                </Button>
+              </>
+            )}
+            
+            {currentRoomIndex > 0 && (
+              <button
+                onClick={() => setCurrentRoomIndex(prev => prev - 1)}
+                className="w-full text-center text-sm text-gray-500 py-2"
+              >
+                ← Go back to previous room
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
