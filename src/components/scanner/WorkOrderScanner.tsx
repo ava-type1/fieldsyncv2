@@ -156,29 +156,58 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // Phone numbers - try to find Home Phone and Work Phone separately
-    // Look for labeled phone numbers first
-    const homePhoneMatch = text.match(/(?:Home\s*(?:Phone)?|H\/P)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
-    const workPhoneMatch = text.match(/(?:Work\s*(?:Phone)?|W\/P|Bus(?:iness)?)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
+    // Look for labeled phone numbers first - multiple patterns for each
+    const homePatterns = [
+      /(?:Home\s*(?:Phone|Ph)?|H\/P|Home\s*#)[:\s]*[(\s]*(\d{3})[)\s\-\/\.]*(\d{3})[\s\-\/\.]*(\d{4})/i,
+      /(?:Home)[:\s]*[(\s]*(\d{3})[)\s\-\/\.]*(\d{3})[\s\-\/\.]*(\d{4})/i,
+    ];
     
-    if (homePhoneMatch) {
-      result.phone = `${homePhoneMatch[1]}-${homePhoneMatch[2]}-${homePhoneMatch[3]}`;
-    }
-    if (workPhoneMatch) {
-      result.workPhone = `${workPhoneMatch[1]}-${workPhoneMatch[2]}-${workPhoneMatch[3]}`;
+    const workPatterns = [
+      /(?:Work\s*(?:Phone|Ph)?|W\/P|Work\s*#|Bus(?:iness)?|Cell)[:\s]*[(\s]*(\d{3})[)\s\-\/\.]*(\d{3})[\s\-\/\.]*(\d{4})/i,
+      /(?:Work|Cell|Mobile)[:\s]*[(\s]*(\d{3})[)\s\-\/\.]*(\d{3})[\s\-\/\.]*(\d{4})/i,
+    ];
+    
+    for (const pattern of homePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.phone = `${match[1]}-${match[2]}-${match[3]}`;
+        break;
+      }
     }
     
-    // If no labeled phones found, try to find any phone numbers
-    if (!result.phone) {
-      const phoneMatches = text.match(/[(\s]*(\d{3})[)\s\-\/]+(\d{3})[\s\-\/]+(\d{4})/g);
-      if (phoneMatches && phoneMatches.length > 0) {
-        // First phone found that's not in the header (skip 352 area code for Ocala plant)
-        for (const match of phoneMatches) {
-          const cleaned = match.replace(/[^\d]/g, '');
-          if (!cleaned.startsWith('352')) { // Skip Ocala plant numbers
-            result.phone = `${cleaned.slice(0,3)}-${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
-            break;
-          }
+    for (const pattern of workPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const workNum = `${match[1]}-${match[2]}-${match[3]}`;
+        // Make sure it's different from home phone
+        if (workNum !== result.phone) {
+          result.workPhone = workNum;
+          break;
         }
+      }
+    }
+    
+    // If no labeled phones found, find ALL phone numbers on the form
+    if (!result.phone || !result.workPhone) {
+      // Find all phone numbers in the text
+      const allPhones: string[] = [];
+      const phoneRegex = /[(\s]*(\d{3})[)\s\-\/\.]+(\d{3})[\s\-\/\.]+(\d{4})/g;
+      let phoneMatch;
+      
+      while ((phoneMatch = phoneRegex.exec(text)) !== null) {
+        const cleaned = `${phoneMatch[1]}-${phoneMatch[2]}-${phoneMatch[3]}`;
+        // Skip Ocala plant numbers (352 area code) and fax numbers
+        if (!phoneMatch[1].startsWith('352') && !allPhones.includes(cleaned)) {
+          allPhones.push(cleaned);
+        }
+      }
+      
+      // Assign found phones
+      if (!result.phone && allPhones.length > 0) {
+        result.phone = allPhones[0];
+      }
+      if (!result.workPhone && allPhones.length > 1) {
+        result.workPhone = allPhones[1];
       }
     }
     

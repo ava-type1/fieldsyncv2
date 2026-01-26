@@ -85,7 +85,10 @@ export function QuickStart() {
         .select()
         .single();
 
-      if (customerError) throw customerError;
+      if (customerError) {
+        console.error('Customer create error:', customerError);
+        throw new Error(`Customer: ${customerError.message}`);
+      }
 
       // Build notes for property
       const propertyNotes = [
@@ -111,7 +114,10 @@ export function QuickStart() {
         .select()
         .single();
 
-      if (propertyError) throw propertyError;
+      if (propertyError) {
+        console.error('Property create error:', propertyError);
+        throw new Error(`Property: ${propertyError.message}`);
+      }
 
       // Create phases
       const phaseNotes = [
@@ -143,9 +149,9 @@ export function QuickStart() {
       
       navigate(path);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating job:', error);
-      alert('Failed to create job. Please try again.');
+      alert(`Failed to create job: ${error?.message || 'Unknown error'}. Please try again.`);
     } finally {
       setCreating(false);
     }
