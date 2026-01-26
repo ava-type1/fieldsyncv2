@@ -198,8 +198,9 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     // First, try to find text immediately after "Name" label but BEFORE "Address" or other fields
     // Format: "Name Jessica Noel-Medeiros" or "Name    Bruce Pappy    Donna Pappy"
     
-    // Pattern: "Name" followed by name (possibly hyphenated), stopping before Address/Home/Dealer/Sales
-    const nameAfterLabel = normalized.match(/Name\s+([A-Z][a-z]+(?:[\-\s][A-Z][a-z]+)+)(?=\s+(?:Address|Home|Dealer|Sales|Serial|\d|$))/i);
+    // Pattern: "Name" followed by name (possibly with Jr./Sr.), stopping before Address/Home/Dealer/Sales
+    // Handle: "Timothy Marquis Jr." or "Timothy MarquisJr." (mushed)
+    const nameAfterLabel = normalized.match(/Name\s+([A-Z][a-z]+(?:[\-\s][A-Z][a-z]+)+(?:\s*(?:Jr\.?|Sr\.?|II|III|IV))?)(?=\s+(?:Address|Home|Dealer|Sales|Serial|Velvet|[A-Z][a-z]+\s+[A-Z]|\d|$))/i);
     
     if (nameAfterLabel) {
       let fullName = nameAfterLabel[1].trim();
@@ -254,20 +255,44 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // === ADDRESS ===
-    // Look for street address pattern: number + street name
-    // Examples: "7109 SE 77 Lane", "15510 CR 121", "123 Main Street"
-    const addressPatterns = normalized.match(/(\d{2,5}\s+(?:[NSEW]{1,2}\s+)?(?:\d+\s+)?[A-Za-z]+(?:\s+[A-Za-z]+)?(?:\s+(?:Lane|Ln|Street|St|Road|Rd|Drive|Dr|Avenue|Ave|Court|Ct|Circle|Cir|Way|Place|Pl|Boulevard|Blvd|Trail|Trl|Terrace|Ter|CR|SR|HWY))?)/gi) || [];
+    // Look for "Address" label followed by street address
+    // OCR might mush text together like "7109 SE77lane" 
     
-    for (const addr of addressPatterns) {
-      // Skip Ocala plant address
-      if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
-      // Skip if it's just numbers
-      if (/^\d+$/.test(addr.trim())) continue;
+    // First try: Find text after "Address" label
+    const addressAfterLabel = normalized.match(/Address\s+(\d+\s*[A-Za-z0-9\s]+?)(?=\s*(?:City|State|Zip|Home|$))/i);
+    if (addressAfterLabel) {
+      let addr = addressAfterLabel[1].trim();
+      // Fix mushed text: "SE77" -> "SE 77", "77lane" -> "77 Lane"
+      addr = addr.replace(/([A-Za-z])(\d)/g, '$1 $2');  // "SE77" -> "SE 77"
+      addr = addr.replace(/(\d)([A-Za-z])/g, '$1 $2');  // "77lane" -> "77 lane"
+      addr = addr.replace(/\s+/g, ' ').trim();
+      // Capitalize street suffix
+      addr = addr.replace(/\b(lane|ln|street|st|road|rd|drive|dr|avenue|ave|court|ct|circle|cir|way|place|pl|boulevard|blvd|trail|trl|terrace|ter)\b/gi, 
+        (m) => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
+      if (addr.length >= 5) {
+        result.address = addr;
+      }
+    }
+    
+    // Fallback: Look for street number patterns
+    if (!result.address) {
+      const addressPatterns = normalized.match(/(\d{2,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
       
-      const cleanAddr = addr.trim().replace(/\s+/g, ' ');
-      if (cleanAddr.length >= 8) {
-        result.address = cleanAddr;
-        break;
+      for (const addr of addressPatterns) {
+        // Skip Ocala plant address
+        if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
+        if (/^\d+$/.test(addr.trim())) continue;
+        
+        let cleanAddr = addr.trim();
+        // Fix mushed text
+        cleanAddr = cleanAddr.replace(/([A-Za-z])(\d)/g, '$1 $2');
+        cleanAddr = cleanAddr.replace(/(\d)([A-Za-z])/g, '$1 $2');
+        cleanAddr = cleanAddr.replace(/\s+/g, ' ');
+        
+        if (cleanAddr.length >= 8) {
+          result.address = cleanAddr;
+          break;
+        }
       }
     }
     
@@ -308,10 +333,13 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       }
     }
     
-    // Another fallback: common Florida city names in text
-    const flCities = normalized.match(/(Trenton|Chiefland|Gainesville|Jacksonville|Ocala|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White)/i);
+    // Another fallback: common Florida city names in text (including OCR typos)
+    const flCities = normalized.match(/(Trenton|Tremton|Chiefland|Gainesville|Jacksonville|Ocala|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White)/i);
     if (flCities && !result.city && flCities[1].toLowerCase() !== 'ocala') {
-      result.city = flCities[1].charAt(0).toUpperCase() + flCities[1].slice(1).toLowerCase();
+      let city = flCities[1];
+      // Fix common OCR typos
+      if (city.toLowerCase() === 'tremton') city = 'Trenton';
+      result.city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
       result.state = 'FL';
     }
     
