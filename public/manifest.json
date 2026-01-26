@@ -6,25 +6,25 @@
   "background_color": "#ffffff",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "scope": "/",
-  "start_url": "/",
-  "id": "/",
+  "scope": "/fieldsyncv2/",
+  "start_url": "/fieldsyncv2/",
+  "id": "/fieldsyncv2/",
   "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
-      "src": "/icons/icon-192.svg",
+      "src": "/fieldsyncv2/icons/icon-192.svg",
       "sizes": "192x192",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.svg",
+      "src": "/fieldsyncv2/icons/icon-512.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable.svg",
+      "src": "/fieldsyncv2/icons/icon-maskable.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "maskable"
@@ -36,22 +36,22 @@
       "name": "Properties",
       "short_name": "Properties",
       "description": "View all properties",
-      "url": "/",
-      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+      "url": "/fieldsyncv2/",
+      "icons": [{ "src": "/fieldsyncv2/icons/icon-192.svg", "sizes": "192x192" }]
     },
     {
       "name": "Dashboard",
       "short_name": "Dashboard",
       "description": "Manager dashboard",
-      "url": "/dashboard",
-      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+      "url": "/fieldsyncv2/dashboard",
+      "icons": [{ "src": "/fieldsyncv2/icons/icon-192.svg", "sizes": "192x192" }]
     },
     {
       "name": "Map View",
       "short_name": "Map",
       "description": "View properties on map",
-      "url": "/map",
-      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+      "url": "/fieldsyncv2/map",
+      "icons": [{ "src": "/fieldsyncv2/icons/icon-192.svg", "sizes": "192x192" }]
     }
   ],
   "related_applications": [],
