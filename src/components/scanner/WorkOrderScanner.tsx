@@ -10,8 +10,9 @@ export interface ScannedWorkOrder {
   city?: string;
   state?: string;
   zip?: string;
-  phone?: string;
-  workPhone?: string;
+  phone?: string;       // Home phone
+  workPhone?: string;   // Work phone
+  cellPhone?: string;   // Cell phone
   poNumber?: string;
   claimNumber?: string;
   model?: string;
@@ -104,184 +105,174 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     reader.readAsDataURL(file);
   };
 
-  // Parse extracted text to find fields - optimized for Service Department forms
+  // Parse extracted text - optimized for Nobility Homes Service Department forms
+  // Form layout: Header (Ocala/plant), Name, Address, City/State/Zip, Phone numbers, Serial
   const parseWorkOrderText = (text: string): ScannedWorkOrder => {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const result: ScannedWorkOrder = { rawText: text };
     
-    // Clean up OCR artifacts - common misreads in poor lighting
-    const cleanText = text
-      .replace(/[|l1]/g, (m, offset, str) => {
-        // Only replace when it looks like OCR noise, not in words
-        const before = str[offset - 1] || ' ';
-        const after = str[offset + 1] || ' ';
-        if (!/[a-zA-Z]/.test(before) && !/[a-zA-Z]/.test(after)) return '1';
-        return m;
-      })
-      .replace(/[O0]/g, (m, offset, str) => {
-        // In number contexts, treat O as 0
-        const context = str.slice(Math.max(0, offset - 2), offset + 3);
-        if (/\d/.test(context)) return '0';
-        return m;
-      });
+    console.log('OCR Raw Text:', text); // Debug logging
     
-    // Serial Number patterns: N1-17552, N1-17670AB, etc.
-    const serialMatch = cleanText.match(/(?:Serial\s*(?:#|No\.?)?:?\s*)?([A-Z]\d-\d{4,5}[A-Z]{0,2})/i);
+    // === SERIAL NUMBER ===
+    // Pattern: Letter + digit + dash + 4-5 digits, optionally followed by letters
+    // Examples: N1-17552, N1-17670AB, A2-12345
+    const serialMatch = text.match(/([A-Z]\d[\-\s]?\d{4,5}[A-Z]{0,2})/i);
     if (serialMatch) {
-      result.serialNumber = serialMatch[1].toUpperCase();
+      result.serialNumber = serialMatch[1].replace(/\s/g, '').toUpperCase();
     }
     
-    // Lot Number: "Lot #: 18-Yulee" or "LOT# 18-Yulee"
-    const lotMatch = cleanText.match(/(?:Lot\s*(?:#|No\.?)?:?\s*)([A-Z0-9][A-Z0-9\-]+)/i);
+    // === PHONE NUMBERS ===
+    // Find ALL phone numbers first, then categorize them
+    // Match various formats: (904) 555-1234, 904-555-1234, 904 555 1234, 9045551234
+    const phonePattern = /[(\s]*(\d{3})[)\s.\-\/]*(\d{3})[\s.\-\/]*(\d{4})/g;
+    const allPhones: string[] = [];
+    let phoneMatch;
+    
+    while ((phoneMatch = phonePattern.exec(text)) !== null) {
+      const num = `${phoneMatch[1]}-${phoneMatch[2]}-${phoneMatch[3]}`;
+      // Skip Ocala plant number (352 area code starting with 352-629 or 352-854)
+      if (!num.startsWith('352-629') && !num.startsWith('352-854') && !num.startsWith('352-622')) {
+        allPhones.push(num);
+      }
+    }
+    
+    // Look for labeled phones
+    const homeMatch = text.match(/(?:Home|H\/?P|Home\s*Phone)[:\s]*[(\s]*(\d{3})[)\s.\-\/]*(\d{3})[\s.\-\/]*(\d{4})/i);
+    const workMatch = text.match(/(?:Work|W\/?P|Work\s*Phone|Bus(?:iness)?)[:\s]*[(\s]*(\d{3})[)\s.\-\/]*(\d{3})[\s.\-\/]*(\d{4})/i);
+    const cellMatch = text.match(/(?:Cell|C\/?P|Cell\s*Phone|Mobile)[:\s]*[(\s]*(\d{3})[)\s.\-\/]*(\d{3})[\s.\-\/]*(\d{4})/i);
+    
+    if (homeMatch) {
+      result.phone = `${homeMatch[1]}-${homeMatch[2]}-${homeMatch[3]}`;
+    }
+    if (workMatch) {
+      result.workPhone = `${workMatch[1]}-${workMatch[2]}-${workMatch[3]}`;
+    }
+    if (cellMatch) {
+      result.cellPhone = `${cellMatch[1]}-${cellMatch[2]}-${cellMatch[3]}`;
+    }
+    
+    // If we didn't find labeled phones, use unlabeled ones in order found
+    if (!result.phone && allPhones.length > 0) {
+      result.phone = allPhones[0];
+    }
+    if (!result.workPhone && allPhones.length > 1) {
+      result.workPhone = allPhones[1];
+    }
+    if (!result.cellPhone && allPhones.length > 2) {
+      result.cellPhone = allPhones[2];
+    }
+    
+    // === CUSTOMER NAME ===
+    // The name is typically one of the first lines after the header
+    // Look for a line that's just a name (First Last or First Middle Last)
+    // Skip: anything with numbers, known headers, addresses
+    
+    for (let i = 0; i < Math.min(lines.length, 12); i++) {
+      const line = lines[i];
+      
+      // Skip empty or too short
+      if (line.length < 4) continue;
+      
+      // Skip known header/junk lines
+      if (line.match(/SERVICE|DEPARTMENT|OCALA|PLANT|COPY|FAX|PHONE|STREET|SW\s+\d|^\d{3}[\s\-]|^\(\d{3}\)|3741|32674|FLORIDA|^FL\s/i)) continue;
+      
+      // Skip lines that look like addresses (start with numbers)
+      if (/^\d+\s/.test(line)) continue;
+      
+      // Skip lines with ZIP codes or phone-like patterns
+      if (/\d{5}/.test(line) || /\d{3}[\s\-]\d{3}[\s\-]\d{4}/.test(line)) continue;
+      
+      // A name line should be mostly letters and spaces, 2-4 words
+      const words = line.split(/\s+/).filter(w => w.length > 1);
+      const letterWords = words.filter(w => /^[A-Za-z\-\']+$/.test(w));
+      
+      if (letterWords.length >= 2 && letterWords.length <= 4 && letterWords.length === words.length) {
+        // Check each word is capitalized (or all caps)
+        const looksLikeName = letterWords.every(w => /^[A-Z]/.test(w));
+        if (looksLikeName) {
+          // Take first name only (before any & or "and")
+          let name = letterWords.join(' ');
+          name = name.split(/\s*[&]\s*/)[0].trim();
+          
+          // Make sure it's not a place or label
+          if (!name.match(/Service|Department|Ocala|Florida|Street|Road|Drive|Phone|Home|Work|Cell|Dealer/i)) {
+            result.customerName = name;
+            break;
+          }
+        }
+      }
+    }
+    
+    // === ADDRESS ===
+    // Address line starts with a number, contains street name
+    const streetSuffixes = '(?:ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|CT|COURT|WAY|BLVD|HWY|CR|PKWY|CIR|PL|TRL|TER)\\.?';
+    
+    for (const line of lines) {
+      // Skip Ocala plant address
+      if (line.match(/3741|SW\s*7th/i)) continue;
+      
+      // Look for: number + street name + optional suffix
+      const addrMatch = line.match(new RegExp(`^(\\d+\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9\\s]+?(?:${streetSuffixes})?)[,\\s]*$`, 'i'));
+      if (addrMatch) {
+        const addr = addrMatch[1].trim().replace(/\s+/g, ' ');
+        if (addr.length >= 8 && !addr.match(/Ocala/i)) {
+          result.address = addr;
+          break;
+        }
+      }
+    }
+    
+    // Fallback: any line starting with number that's not a phone or ZIP
+    if (!result.address) {
+      for (const line of lines) {
+        if (line.match(/3741|Ocala|^\d{5}$|^\d{3}[\-\s]\d{3}/i)) continue;
+        if (/^\d+\s+[A-Za-z]/.test(line) && line.length >= 10 && line.length <= 50) {
+          result.address = line.replace(/\s+/g, ' ').replace(/[,]?\s*(FL|Florida)?\s*\d{5}.*$/i, '').trim();
+          if (result.address.length >= 8) break;
+        }
+      }
+    }
+    
+    // === CITY, STATE, ZIP ===
+    // Look for: City, FL 32XXX or City FL 32XXX patterns
+    const cityStateZip = text.match(/([A-Za-z][A-Za-z\s]{1,25}?)[,\s]+(FL|Florida)[,\s]+(\d{5})/i);
+    if (cityStateZip && !cityStateZip[1].match(/Ocala/i)) {
+      result.city = cityStateZip[1].trim();
+      result.state = 'FL';
+      result.zip = cityStateZip[3];
+    }
+    
+    // If no city found but we have a ZIP, try to find city near it
+    if (!result.city) {
+      const zipMatch = text.match(/(\d{5})(?!\d)/);
+      if (zipMatch && zipMatch[1].startsWith('3') && zipMatch[1] !== '32674') {
+        result.zip = zipMatch[1];
+        result.state = 'FL';
+      }
+    }
+    
+    // === OTHER FIELDS (lower priority) ===
+    
+    // Lot Number
+    const lotMatch = text.match(/(?:Lot\s*(?:#|No\.?)?[:\s]*)([A-Z0-9][A-Z0-9\-]+)/i);
     if (lotMatch) {
       result.lotNumber = lotMatch[1].trim();
     }
     
-    // Salesperson
-    const salespersonMatch = cleanText.match(/(?:Salesperson|Sales\s*Rep|Sold\s*By)[:\s]*([A-Za-z]+)/i);
-    if (salespersonMatch) {
-      result.salesperson = salespersonMatch[1].trim();
-    }
-    
-    // Setup By / Set Up
-    const setupMatch = cleanText.match(/(?:Set\s*Up\s*By|Setup)[:\s]*([A-Za-z\s]+?)(?=\n|$)/i);
-    if (setupMatch) {
-      result.setupBy = setupMatch[1].trim();
-    }
-    
-    // Claim Number: 5 digits
-    const claimMatch = cleanText.match(/(?:Claim\s*(?:#|Number)?:?\s*)(\d{5})/i);
-    if (claimMatch) {
-      result.claimNumber = claimMatch[1];
-    }
-    
     // P.O. Number
-    const poMatch = cleanText.match(/(?:P\.?O\.?\s*(?:#|No\.?)?:?\s*)(\d{4,6})/i);
+    const poMatch = text.match(/(?:P\.?O\.?\s*(?:#|No\.?)?[:\s]*)(\d{4,6})/i);
     if (poMatch) {
       result.poNumber = poMatch[1];
     }
     
-    // Model pattern
-    const modelMatch = cleanText.match(/(?:Model\s*(?:#)?:?\s*)([A-Z0-9]+(?:\([0-9]+\))?)/i);
+    // Model
+    const modelMatch = text.match(/(?:Model\s*(?:#)?[:\s]*)([A-Z0-9]+(?:\([0-9]+\))?)/i);
     if (modelMatch) {
       result.model = modelMatch[1];
     }
     
-    // Phone numbers - find labeled phones first
-    const homePhoneMatch = cleanText.match(/(?:Home\s*(?:Phone)?|H\/P)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
-    const workPhoneMatch = cleanText.match(/(?:Work\s*(?:Phone)?|W\/P|Bus(?:iness)?)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
-    
-    if (homePhoneMatch) {
-      result.phone = `${homePhoneMatch[1]}-${homePhoneMatch[2]}-${homePhoneMatch[3]}`;
-    }
-    if (workPhoneMatch) {
-      result.workPhone = `${workPhoneMatch[1]}-${workPhoneMatch[2]}-${workPhoneMatch[3]}`;
-    }
-    
-    // If no labeled phones found, try to find any phone numbers
-    if (!result.phone) {
-      const phoneMatches = cleanText.match(/[(\s]*(\d{3})[)\s\-\/]+(\d{3})[\s\-\/]+(\d{4})/g);
-      if (phoneMatches && phoneMatches.length > 0) {
-        for (const match of phoneMatches) {
-          const cleaned = match.replace(/[^\d]/g, '');
-          if (!cleaned.startsWith('352')) { // Skip Ocala plant numbers
-            result.phone = `${cleaned.slice(0,3)}-${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
-            break;
-          }
-        }
-      }
-    }
-    
-    // CUSTOMER NAME - FIRST PERSON ONLY
-    // Strategy: Find labeled name first, then fall back to pattern matching
-    // Only take the FIRST name found, ignore "&" or "and" secondary names
-    
-    // Try labeled name field first
-    let nameMatch = cleanText.match(/(?:Name|Customer|Owner|Homeowner)[:\s]+([A-Za-z][A-Za-z\-\'\s]+?)(?=\s+(?:&|and|\n|\d|$))/i);
-    
-    if (nameMatch) {
-      // Clean up: take only first person if multiple listed
-      let name = nameMatch[1].trim();
-      // Remove anything after & or "and"
-      name = name.split(/\s*(?:&|and)\s*/i)[0].trim();
-      // Remove trailing words that look like labels
-      name = name.replace(/\s+(Home|Work|Phone|Address|St|Street|Rd|Road).*$/i, '').trim();
-      if (name.split(' ').length >= 2 && name.split(' ').length <= 4) {
-        result.customerName = name;
-      }
-    }
-    
-    // If no labeled name, look for name patterns in first 15 lines
-    if (!result.customerName) {
-      for (const line of lines.slice(0, 15)) {
-        // Skip obvious non-name lines
-        if (line.match(/SERVICE|DEPARTMENT|COPY|PLANT|OCALA|SW|STREET|FAX|PHONE|\d{5}|^\d+\s|^P\.?O|^LOT|^SERIAL/i)) continue;
-        if (line.length < 5 || line.length > 40) continue;
-        
-        // Look for "Firstname Lastname" pattern (2-4 words, capitalized)
-        const nameParts = line.split(/\s+/).filter(p => /^[A-Z][a-z]+$/.test(p));
-        if (nameParts.length >= 2 && nameParts.length <= 4) {
-          // Check it's not a place name
-          const joined = nameParts.join(' ');
-          if (!joined.match(/Service|Department|Ocala|Florida|Street|Road|Drive|Lane|Court/i)) {
-            // Take only first two parts if there's an "&" situation
-            const firstName = nameParts[0];
-            const lastName = nameParts[nameParts.length - 1];
-            result.customerName = `${firstName} ${lastName}`;
-            break;
-          }
-        }
-      }
-    }
-    
-    // ADDRESS - More forgiving parsing for imperfect scans
-    // Look for street number + street name pattern
-    // Common OCR issues: numbers get garbled, letters get swapped
-    
-    // Try to find address with street suffix
-    const streetSuffixes = 'ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|CT|COURT|WAY|BLVD|BOULEVARD|HWY|HIGHWAY|CR|PKWY|PARKWAY|CIR|CIRCLE|PL|PLACE|TRL|TRAIL|TER|TERRACE';
-    const addressRegex = new RegExp(`(\\d+[\\s\\-]?(?:[A-Z])?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9\\s]+(?:${streetSuffixes})\\.?)`, 'gi');
-    const addressMatches = cleanText.match(addressRegex);
-    
-    if (addressMatches) {
-      for (const addr of addressMatches) {
-        // Skip the Ocala plant address
-        if (addr.match(/3741|SW\s*7th|Ocala/i)) continue;
-        // Clean up the address
-        let cleanAddr = addr.trim().replace(/\s+/g, ' ');
-        // Remove trailing junk
-        cleanAddr = cleanAddr.replace(/\s+(FL|Florida|\d{5}).*$/i, '').trim();
-        if (cleanAddr.length >= 10) {
-          result.address = cleanAddr;
-          break;
-        }
-      }
-    }
-    
-    // If no address found with suffix, try looser pattern (number + words)
-    if (!result.address) {
-      const looseAddrMatch = cleanText.match(/(\d{2,5}\s+[A-Za-z][A-Za-z\s]{5,30}?)(?=\n|,|\s+FL|\s+Florida|\d{5})/i);
-      if (looseAddrMatch && !looseAddrMatch[1].match(/3741|Ocala|Phone|Fax/i)) {
-        result.address = looseAddrMatch[1].trim().replace(/\s+/g, ' ');
-      }
-    }
-    
-    // City, State, Zip - FL ZIP codes start with 3
-    const cityStateZipMatches = cleanText.match(/([A-Za-z][A-Za-z\s]{2,20})[,\s]+(FL|Florida)[,\s]+(\d{5})/gi);
-    if (cityStateZipMatches) {
-      for (const match of cityStateZipMatches) {
-        const parsed = match.match(/([A-Za-z][A-Za-z\s]{2,20})[,\s]+(FL|Florida)[,\s]+(\d{5})/i);
-        if (parsed && !parsed[1].match(/Ocala/i)) {
-          result.city = parsed[1].trim();
-          result.state = 'FL';
-          result.zip = parsed[3];
-          break;
-        }
-      }
-    }
-    
-    // Dealer name
-    const dealerMatch = cleanText.match(/(?:Dealer|Prestige|Home\s*Center)[:\s]*([^\n]+)/i);
+    // Dealer
+    const dealerMatch = text.match(/(?:Dealer|Prestige)[:\s]*([^\n]{3,30})/i);
     if (dealerMatch) {
       result.dealer = dealerMatch[1].trim();
     }
@@ -487,6 +478,12 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
                   <div className="flex justify-between">
                     <span className="text-gray-400">Work Phone</span>
                     <span className="text-white">{scannedData.workPhone}</span>
+                  </div>
+                )}
+                {scannedData.cellPhone && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Cell Phone</span>
+                    <span className="text-white">{scannedData.cellPhone}</span>
                   </div>
                 )}
                 
