@@ -11,6 +11,7 @@ import { LandingPage } from './pages/landing/LandingPage';
 import { PropertyList } from './pages/properties/PropertyList';
 import { PropertyDetail } from './pages/properties/PropertyDetail';
 import { WalkthroughForm } from './pages/service/WalkthroughForm';
+import { WalkthroughChecklist } from './pages/service/WalkthroughChecklist';
 import { MaterialsList } from './pages/materials/MaterialsList';
 import { Dashboard } from './pages/manager/Dashboard';
 import { ReviewWalkthrough } from './pages/manager/ReviewWalkthrough';
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/properties" element={<PropertyList />} />
         <Route path="/property/:id" element={<PropertyDetail />} />
         <Route path="/property/:id/walkthrough" element={<WalkthroughForm />} />
+        <Route path="/property/:id/walkthrough-checklist" element={<WalkthroughChecklist />} />
         <Route path="/materials" element={<MaterialsList />} />
         <Route path="/map" element={<MapView />} />
         <Route path="/dashboard" element={<Dashboard />} />

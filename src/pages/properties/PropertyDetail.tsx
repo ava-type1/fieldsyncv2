@@ -188,7 +188,13 @@ export function PropertyDetail() {
                 </p>
               </div>
               <Button
-                onClick={() => navigate(`/property/${property.id}/walkthrough`)}
+                onClick={() => {
+                  // Use checklist for Initial Walk-Through, regular form for others
+                  const path = servicePhase.type === 'Initial Walk-Through'
+                    ? `/property/${property.id}/walkthrough-checklist`
+                    : `/property/${property.id}/walkthrough`;
+                  navigate(path);
+                }}
                 className="flex items-center gap-2"
               >
                 <Play className="w-4 h-4" />
