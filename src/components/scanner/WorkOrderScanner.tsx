@@ -192,51 +192,62 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // === NAME ===
-    // Form labels to reject (these are NOT names)
-    const labelWords = /^(name|date|address|city|state|zip|phone|home|work|cell|dealer|lot|serial|model|sales|service|walk|thru|buyer|yes|no|description|acceptance|exterior|interior|signature|comments|callers)$/i;
+    // IMPORTANT: The customer name comes RIGHT AFTER the "Name" label on the form
+    // Salesperson name comes after "Sales person" label - we must NOT grab that
     
-    // Common first names to help identify real names
-    const commonFirstNames = /^(james|john|robert|michael|david|william|richard|joseph|thomas|charles|christopher|daniel|matthew|anthony|mark|donald|steven|paul|andrew|joshua|kenneth|kevin|brian|george|timothy|ronald|edward|jason|jeffrey|ryan|jacob|gary|nicholas|eric|jonathan|stephen|larry|justin|scott|brandon|benjamin|samuel|raymond|gregory|frank|alexander|patrick|jack|dennis|jerry|tyler|aaron|jose|adam|nathan|henry|douglas|zachary|peter|kyle|bruce|terry|sean|christian|austin|arthur|lawrence|jesse|dylan|bryan|joe|jordan|billy|albert|willie|gerald|logan|wayne|elijah|randy|roy|vincent|ralph|eugene|russell|bobby|mason|philip|louis|harry|carl|ethan|keith|roger|gerald|barry|johnny|walter|noah|alan|juan|wayne|elijah|randy|roy|vincent|ralph|eugene|russell|bobby|mason|philip|louis|harry|carl|donna|velvet|mary|patricia|jennifer|linda|barbara|elizabeth|susan|jessica|sarah|karen|lisa|nancy|betty|margaret|sandra|ashley|kimberly|emily|donna|michelle|dorothy|carol|amanda|melissa|deborah|stephanie|rebecca|sharon|laura|cynthia|kathleen|amy|angela|shirley|anna|brenda|pamela|emma|nicole|helen|samantha|katherine|christine|debra|rachel|carolyn|janet|catherine|maria|heather|diane|ruth|julie|olivia|joyce|virginia|victoria|kelly|lauren|christina|joan|evelyn|judith|megan|andrea|cheryl|hannah|jacqueline|martha|gloria|teresa|ann|sara|madison|frances|kathryn|janice|jean|abigail|alice|judy|sophia|grace|denise|amber|doris|marilyn|danielle|beverly|isabella|theresa|diana|natalie|brittany|charlotte|marie|kayla|alexis|lori)$/i;
+    // First, try to find text immediately after "Name" label but BEFORE "Address" or other fields
+    // Format: "Name Jessica Noel-Medeiros" or "Name    Bruce Pappy    Donna Pappy"
     
-    // Look for name patterns - "Firstname Lastname" or "Firstname Middlename Lastname" or "Firstname Lastname Jr."
-    // Search the whole text for valid name patterns
-    const namePatterns = normalized.match(/([A-Z][a-z]+)\s+([A-Z][a-z]+)(?:\s+(Jr\.?|Sr\.?|II|III|IV))?/g) || [];
+    // Pattern: "Name" followed by name (possibly hyphenated), stopping before Address/Home/Dealer/Sales
+    const nameAfterLabel = normalized.match(/Name\s+([A-Z][a-z]+(?:[\-\s][A-Z][a-z]+)+)(?=\s+(?:Address|Home|Dealer|Sales|Serial|\d|$))/i);
     
-    for (const potentialName of namePatterns) {
-      const parts = potentialName.trim().split(/\s+/);
-      const firstName = parts[0];
-      const lastName = parts[1];
-      
-      // Skip if either part is a label word
-      if (labelWords.test(firstName) || labelWords.test(lastName)) continue;
-      
-      // Skip if it looks like a place (Florida, Ocala, etc.)
-      if (potentialName.match(/florida|ocala|trenton|chiefland|gainesville|jacksonville|tampa|orlando|plant|street|lane|drive|road|avenue/i)) continue;
-      
-      // Bonus: if first name is a common first name, we're confident
-      if (commonFirstNames.test(firstName)) {
-        // Include Jr./Sr./III if present
-        if (parts.length > 2 && parts[2].match(/^(Jr\.?|Sr\.?|II|III|IV)$/i)) {
-          result.customerName = `${firstName} ${lastName} ${parts[2]}`;
-        } else {
-          result.customerName = `${firstName} ${lastName}`;
-        }
-        break;
+    if (nameAfterLabel) {
+      let fullName = nameAfterLabel[1].trim();
+      // If there are two people (e.g., "Bruce Pappy Donna Pappy"), take only the first
+      // Split by double-capital pattern (end of one name, start of another)
+      const twoPeopleMatch = fullName.match(/^([A-Z][a-z]+(?:[\-\s][A-Z][a-z\-]+)?)\s+[A-Z][a-z]+\s+[A-Z]/);
+      if (twoPeopleMatch) {
+        fullName = twoPeopleMatch[1];
+      }
+      // Handle "Firstname Lastname" or "Firstname Hyphen-Lastname"
+      const nameParts = fullName.split(/\s+/);
+      if (nameParts.length >= 2) {
+        result.customerName = nameParts.slice(0, 3).join(' '); // Take up to 3 parts (First Middle-Last or First Last Jr.)
       }
     }
     
-    // Fallback: Look for any two capitalized words that aren't labels
+    // Fallback: Look in the area between "Name" and "Address" labels
     if (!result.customerName) {
+      const betweenLabels = normalized.match(/Name\s+([\s\S]+?)\s+Address/i);
+      if (betweenLabels) {
+        // Extract name pattern from this section
+        const section = betweenLabels[1];
+        const nameMatch = section.match(/([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/);
+        if (nameMatch) {
+          result.customerName = `${nameMatch[1]} ${nameMatch[2]}`;
+        }
+      }
+    }
+    
+    // Last resort: Look for common first names but NOT after "Sales person" or "Salesperson"
+    if (!result.customerName) {
+      const commonFirstNames = /^(james|john|robert|michael|david|william|richard|joseph|thomas|charles|christopher|daniel|matthew|anthony|mark|steven|paul|andrew|joshua|kenneth|kevin|brian|george|timothy|ronald|edward|jason|jeffrey|ryan|jacob|gary|nicholas|eric|jonathan|stephen|larry|justin|scott|brandon|benjamin|samuel|gregory|alexander|patrick|dennis|tyler|aaron|adam|nathan|henry|zachary|peter|kyle|bruce|sean|christian|austin|arthur|jesse|dylan|bryan|joe|jordan|albert|logan|randy|roy|eugene|russell|mason|philip|louis|carl|ethan|keith|roger|barry|walter|noah|alan|donna|mary|patricia|jennifer|linda|barbara|elizabeth|susan|jessica|sarah|karen|lisa|nancy|betty|margaret|sandra|ashley|kimberly|emily|michelle|dorothy|carol|amanda|melissa|deborah|stephanie|rebecca|sharon|laura|cynthia|kathleen|amy|angela|anna|brenda|pamela|emma|nicole|helen|samantha|katherine|christine|rachel|janet|catherine|maria|heather|diane|ruth|julie|olivia|joyce|virginia|victoria|kelly|lauren|christina|megan|andrea|cheryl|hannah|martha|gloria|teresa|sara|madison|kathryn|janice|jean|alice|sophia|grace|denise|amber|marilyn|danielle|isabella|diana|natalie|brittany|charlotte|marie|kayla|alexis|velvet)$/i;
+      
+      // Remove the salesperson section from consideration
+      const textWithoutSales = normalized.replace(/Sales\s*person\s+[A-Za-z\s]+/gi, '');
+      
+      // Find name patterns
+      const namePatterns = textWithoutSales.match(/([A-Z][a-z]+)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/g) || [];
+      
       for (const potentialName of namePatterns) {
         const parts = potentialName.trim().split(/\s+/);
-        if (parts.length >= 2) {
-          const firstName = parts[0];
-          const lastName = parts[1];
-          
-          if (labelWords.test(firstName) || labelWords.test(lastName)) continue;
-          if (potentialName.match(/florida|ocala|street|lane|drive|road|service|department/i)) continue;
-          
-          result.customerName = `${firstName} ${lastName}`;
+        const firstName = parts[0];
+        
+        // Skip place names and labels
+        if (potentialName.match(/florida|ocala|jacksonville|trenton|plant|street|lane|drive|road|service|department|phone|dealer|serial|model/i)) continue;
+        
+        if (commonFirstNames.test(firstName)) {
+          result.customerName = potentialName;
           break;
         }
       }
@@ -276,10 +287,15 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       result.state = 'FL';
     }
     
-    let zipMatch = normalized.match(/(?:Zip\s+)?(\d{5})(?!\d)/i);
-    // Make sure it's not the Ocala ZIP (34474)
-    if (zipMatch && zipMatch[1] !== '34474') {
-      result.zip = zipMatch[1];
+    // Find ZIP but skip Ocala plant ZIPs (34474, 33474)
+    const zipMatches = normalized.match(/(?:Zip\s+)?(\d{5})(?!\d)/gi) || [];
+    for (const zm of zipMatches) {
+      const zip = zm.replace(/\D/g, '');
+      // Skip Ocala plant ZIP codes
+      if (zip !== '34474' && zip !== '33474') {
+        result.zip = zip;
+        break;
+      }
     }
     
     // Fallback: Look for "City, FL ZIP" or "City FL ZIP" pattern
