@@ -161,7 +161,27 @@ CREATE POLICY "Users can insert notifications"
     )
   );
 
--- Fix users table "user_insert" policy (if exists)
+-- Fix users table policies
 DROP POLICY IF EXISTS "user_insert" ON users;
 CREATE POLICY "user_insert" ON users
   FOR INSERT WITH CHECK (id = (select auth.uid()));
+
+DROP POLICY IF EXISTS "user_update" ON users;
+CREATE POLICY "user_update" ON users
+  FOR UPDATE USING (id = (select auth.uid()));
+
+-- Fix sms_notifications update policy
+DROP POLICY IF EXISTS "Users can update their own notifications" ON sms_notifications;
+CREATE POLICY "Users can update their own notifications"
+  ON sms_notifications FOR UPDATE
+  USING (user_id = (select auth.uid()));
+
+-- Fix organization_subscriptions policy
+DROP POLICY IF EXISTS "Users can view own org subscription" ON organization_subscriptions;
+CREATE POLICY "Users can view own org subscription"
+  ON organization_subscriptions FOR SELECT
+  USING (
+    organization_id IN (
+      SELECT organization_id FROM users WHERE id = (select auth.uid())
+    )
+  );
