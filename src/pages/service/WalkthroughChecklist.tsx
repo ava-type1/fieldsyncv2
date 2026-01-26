@@ -2,20 +2,19 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ChevronLeft, 
-  ChevronRight, 
   Check, 
-  AlertCircle, 
+  Square,
   Camera,
-  X,
   Save,
   FileText,
-  Package
+  Package,
+  ClipboardList
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { SignatureCapture } from '../../components/signatures/SignatureCapture';
 import { PhotoCapture } from '../../components/photos/PhotoCapture';
-import { walkthroughChecklist, type ItemStatus, type ChecklistItemResult } from '../../data/walkthroughChecklist';
+import { walkthroughTasks, type ItemStatus, type ChecklistItemResult } from '../../data/walkthroughChecklist';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
 import { downloadWalkthroughPDF } from '../../utils/generateWalkthroughPDF';
@@ -25,18 +24,20 @@ export function WalkthroughChecklist() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   
-  const [currentRoomIndex, setCurrentRoomIndex] = useState(0);
   const [results, setResults] = useState<Record<string, ChecklistItemResult>>({});
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [specialNotes, setSpecialNotes] = useState('');
   const [showSignature, setShowSignature] = useState(false);
   const [customerSignature, setCustomerSignature] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showCamera, setShowCamera] = useState<string | null>(null);
-  const [property, setProperty] = useState<{ customer: { firstName: string; lastName: string } } | null>(null);
-
-  const currentRoom = walkthroughChecklist[currentRoomIndex];
-  const totalRooms = walkthroughChecklist.length;
-  const progress = ((currentRoomIndex + 1) / totalRooms) * 100;
+  const [property, setProperty] = useState<{
+    serialNumber?: string;
+    customer: { firstName: string; lastName: string };
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  } | null>(null);
 
   // Load property info
   useEffect(() => {
@@ -49,6 +50,11 @@ export function WalkthroughChecklist() {
         .single();
       if (data) {
         setProperty({
+          serialNumber: data.serial_number,
+          street: data.street,
+          city: data.city,
+          state: data.state,
+          zip: data.zip,
           customer: {
             firstName: data.customer?.first_name || '',
             lastName: data.customer?.last_name || '',
@@ -59,57 +65,28 @@ export function WalkthroughChecklist() {
     loadProperty();
   }, [propertyId]);
 
-  const setItemStatus = (itemId: string, status: ItemStatus) => {
-    setResults(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        itemId,
-        status,
-      }
-    }));
-  };
-
-  const setItemNotes = (itemId: string, notes: string) => {
-    setResults(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        itemId,
-        status: prev[itemId]?.status || 'issue',
-        notes,
-      }
-    }));
-  };
-
-  const addItemPhoto = (itemId: string, photoUrl: string) => {
-    setResults(prev => ({
-      ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        itemId,
-        status: prev[itemId]?.status || 'issue',
-        photoIds: [...(prev[itemId]?.photoIds || []), photoUrl],
-      }
-    }));
-    setShowCamera(null);
+  const toggleItem = (itemId: string) => {
+    setResults(prev => {
+      const current = prev[itemId]?.status;
+      const newStatus: ItemStatus = current === 'ok' ? 'pending' : 'ok';
+      return {
+        ...prev,
+        [itemId]: {
+          ...prev[itemId],
+          itemId,
+          status: newStatus,
+        }
+      };
+    });
   };
 
   const getItemStatus = (itemId: string): ItemStatus => {
     return results[itemId]?.status || 'pending';
   };
 
-  const getRoomProgress = (roomIndex: number) => {
-    const room = walkthroughChecklist[roomIndex];
-    const completed = room.items.filter(item => 
-      results[item.id]?.status === 'ok' || results[item.id]?.status === 'issue'
-    ).length;
-    return { completed, total: room.items.length };
-  };
-
-  const currentRoomProgress = getRoomProgress(currentRoomIndex);
-  
-  const issueCount = Object.values(results).filter(r => r.status === 'issue').length;
+  const completedCount = Object.values(results).filter(r => r.status === 'ok').length;
+  const totalCount = walkthroughTasks.length;
+  const progress = (completedCount / totalCount) * 100;
 
   const handleSave = async (generatePDF = false, generateMaterials = false) => {
     if (!propertyId || !user || !property) return;
@@ -118,21 +95,10 @@ export function WalkthroughChecklist() {
     try {
       const completedAt = new Date().toISOString();
       
-      // Get issue details
-      const issueItems = Object.entries(results)
-        .filter(([_, r]) => r.status === 'issue')
-        .map(([itemId, r]) => {
-          const room = walkthroughChecklist.find(room => 
-            room.items.some(item => item.id === itemId)
-          );
-          const item = room?.items.find(i => i.id === itemId);
-          return {
-            room: room?.name || '',
-            item: item?.label || '',
-            notes: r.notes || 'Issue noted',
-            itemId,
-          };
-        });
+      // Get incomplete items (these need return trip)
+      const incompleteItems = walkthroughTasks
+        .filter(task => getItemStatus(task.id) !== 'ok')
+        .map(task => task.label);
 
       // Update the walkthrough phase
       const { error } = await supabase
@@ -141,9 +107,12 @@ export function WalkthroughChecklist() {
           status: 'completed',
           completed_at: completedAt,
           completed_by_user_id: user.id,
-          notes: issueItems.length > 0 
-            ? `Issues found:\n${issueItems.map(i => `${i.room} - ${i.item}: ${i.notes}`).join('\n')}`
-            : 'Walk-through complete. No issues found.',
+          notes: [
+            incompleteItems.length > 0 
+              ? `Items for return trip:\n${incompleteItems.map(i => `• ${i}`).join('\n')}`
+              : 'Walk-through complete. All items checked.',
+            specialNotes ? `\nSpecial Notes:\n${specialNotes}` : ''
+          ].filter(Boolean).join('\n'),
           customer_signature_url: customerSignature,
           customer_signed_at: customerSignature ? completedAt : null,
         })
@@ -152,23 +121,23 @@ export function WalkthroughChecklist() {
 
       if (error) throw error;
 
-      // Create return work orders for issues
-      if (issueItems.length > 0) {
+      // Create return work orders for incomplete items
+      if (incompleteItems.length > 0) {
         await supabase
           .from('phases')
           .update({
             status: 'scheduled',
-            notes: `Return visit needed for ${issueCount} issues from walk-through.`,
+            notes: `Return visit needed:\n${incompleteItems.map(i => `• ${i}`).join('\n')}${specialNotes ? `\n\nNotes: ${specialNotes}` : ''}`,
           })
           .eq('property_id', propertyId)
           .eq('type', 'Return Work Order #1');
       }
 
-      // Generate materials list from issues
-      if (generateMaterials && issueItems.length > 0) {
-        const materialsItems = issueItems.map((issue, index) => ({
-          name: `${issue.room} - ${issue.item}`,
-          description: issue.notes,
+      // Generate materials list from incomplete items
+      if (generateMaterials && incompleteItems.length > 0) {
+        const materialsItems = incompleteItems.map((item, index) => ({
+          name: item,
+          description: '',
           quantity: 1,
           estimatedCost: null,
           status: 'needed',
@@ -246,15 +215,20 @@ export function WalkthroughChecklist() {
     return (
       <div className="min-h-screen bg-black">
         <PhotoCapture
-          onCapture={(photoUrl) => addItemPhoto(showCamera, photoUrl)}
+          onCapture={(photoUrl) => {
+            // Add photo to special notes or results
+            setShowCamera(null);
+          }}
           onClose={() => setShowCamera(null)}
         />
       </div>
     );
   }
 
+  const incompleteCount = totalCount - completedCount;
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gray-50 pb-32">
       {/* Header */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="px-4 py-3">
@@ -267,215 +241,168 @@ export function WalkthroughChecklist() {
               Back
             </button>
             <span className="text-sm text-gray-500">
-              Room {currentRoomIndex + 1} of {totalRooms}
+              {completedCount} of {totalCount} checked
             </span>
           </div>
           
           {/* Progress bar */}
           <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-primary-600 transition-all duration-300"
+              className="h-full bg-green-500 transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>
         </div>
       </div>
 
-      {/* Room Title */}
+      {/* Form Header - Serial # and Date */}
       <div className="bg-white border-b px-4 py-4">
-        <h1 className="text-2xl font-bold text-gray-900">{currentRoom.name}</h1>
+        <div className="flex items-center gap-2 mb-2">
+          <ClipboardList className="w-6 h-6 text-primary-600" />
+          <h1 className="text-xl font-bold text-gray-900">Walk-Through Checklist</h1>
+        </div>
+        <div className="flex gap-4 text-sm text-gray-600">
+          <span><strong>Serial #:</strong> {property?.serialNumber || 'N/A'}</span>
+          <span><strong>Date:</strong> {new Date().toLocaleDateString()}</span>
+        </div>
         <p className="text-sm text-gray-500 mt-1">
-          {currentRoomProgress.completed} of {currentRoomProgress.total} items checked
+          {property?.customer.firstName} {property?.customer.lastName}
         </p>
       </div>
 
       {/* Checklist Items */}
       <div className="p-4 space-y-2">
-        {currentRoom.items.map((item) => {
-          const status = getItemStatus(item.id);
-          const isExpanded = expandedItem === item.id;
-          const result = results[item.id];
-
+        {walkthroughTasks.map((task) => {
+          const isChecked = getItemStatus(task.id) === 'ok';
+          
           return (
-            <Card key={item.id} className="overflow-hidden">
-              <div className="flex items-center gap-3">
-                {/* Status buttons */}
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setItemStatus(item.id, 'ok')}
-                    className={`p-2 rounded-lg transition-colors ${
-                      status === 'ok'
-                        ? 'bg-green-100 text-green-600'
-                        : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-500'
-                    }`}
-                  >
-                    <Check className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setItemStatus(item.id, 'issue');
-                      setExpandedItem(item.id);
-                    }}
-                    className={`p-2 rounded-lg transition-colors ${
-                      status === 'issue'
-                        ? 'bg-red-100 text-red-600'
-                        : 'bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500'
-                    }`}
-                  >
-                    <AlertCircle className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Label */}
-                <span 
-                  className={`flex-1 ${status === 'ok' ? 'text-gray-400 line-through' : 'text-gray-900'}`}
-                  onClick={() => status === 'issue' && setExpandedItem(isExpanded ? null : item.id)}
-                >
-                  {item.label}
-                </span>
-
-                {/* Photo indicator */}
-                {result?.photoIds && result.photoIds.length > 0 && (
-                  <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
-                    {result.photoIds.length} 📷
-                  </span>
-                )}
+            <button
+              key={task.id}
+              onClick={() => toggleItem(task.id)}
+              className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                isChecked 
+                  ? 'bg-green-50 border-green-300' 
+                  : 'bg-white border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {/* Checkbox */}
+              <div className={`w-6 h-6 rounded flex items-center justify-center ${
+                isChecked ? 'bg-green-500 text-white' : 'border-2 border-gray-300'
+              }`}>
+                {isChecked && <Check className="w-4 h-4" />}
               </div>
-
-              {/* Expanded issue details */}
-              {isExpanded && status === 'issue' && (
-                <div className="mt-3 pt-3 border-t space-y-3">
-                  <textarea
-                    placeholder="Describe the issue..."
-                    className="w-full p-3 border rounded-lg text-sm resize-none"
-                    rows={2}
-                    value={result?.notes || ''}
-                    onChange={(e) => setItemNotes(item.id, e.target.value)}
-                  />
-                  
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowCamera(item.id)}
-                      className="flex items-center gap-2 px-3 py-2 bg-blue-100 rounded-lg text-sm text-blue-700"
-                    >
-                      <Camera className="w-4 h-4" />
-                      Add Photo (optional)
-                    </button>
-                    <button
-                      onClick={() => setExpandedItem(null)}
-                      className="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm"
-                    >
-                      Done
-                    </button>
-                  </div>
-
-                  {/* Photo previews */}
-                  {result?.photoIds && result.photoIds.length > 0 && (
-                    <div className="flex gap-2 overflow-x-auto">
-                      {result.photoIds.map((url, i) => (
-                        <img 
-                          key={i} 
-                          src={url} 
-                          alt={`Issue photo ${i + 1}`}
-                          className="w-16 h-16 object-cover rounded-lg"
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </Card>
+              
+              {/* Label */}
+              <span className={`flex-1 text-left ${isChecked ? 'text-green-700' : 'text-gray-700'}`}>
+                {task.label}
+              </span>
+            </button>
           );
         })}
       </div>
 
-      {/* Navigation Footer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 pb-safe">
-        {currentRoomIndex < totalRooms - 1 ? (
-          /* Room navigation */
-          <div className="flex gap-3">
-            {currentRoomIndex > 0 && (
-              <Button
-                variant="secondary"
-                onClick={() => setCurrentRoomIndex(prev => prev - 1)}
-                className="flex-1"
+      {/* Special Notes Section */}
+      <div className="px-4 mb-4">
+        <Card>
+          <h3 className="font-semibold text-gray-900 mb-2">Special Notes</h3>
+          <textarea
+            placeholder="Enter any special notes for this walk-through..."
+            className="w-full p-3 border rounded-lg text-sm resize-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            rows={4}
+            value={specialNotes}
+            onChange={(e) => setSpecialNotes(e.target.value)}
+          />
+          
+          <button
+            onClick={() => setShowCamera('notes')}
+            className="flex items-center gap-2 mt-2 text-sm text-primary-600"
+          >
+            <Camera className="w-4 h-4" />
+            Add Photo
+          </button>
+        </Card>
+      </div>
+
+      {/* Customer Signature Section */}
+      <div className="px-4 mb-4">
+        <Card>
+          <h3 className="font-semibold text-gray-900 mb-2">Customer Signature</h3>
+          
+          {customerSignature ? (
+            <div className="space-y-2">
+              <div className="border rounded-lg p-2 bg-gray-50">
+                <img 
+                  src={customerSignature} 
+                  alt="Customer signature" 
+                  className="max-h-20 mx-auto"
+                />
+              </div>
+              <p className="text-sm text-green-600 text-center">
+                ✓ Signed by {property?.customer.firstName} {property?.customer.lastName}
+              </p>
+              <button
+                onClick={() => setShowSignature(true)}
+                className="text-sm text-primary-600 w-full text-center"
               >
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                Previous
-              </Button>
-            )}
+                Re-sign
+              </button>
+            </div>
+          ) : (
             <Button
-              onClick={() => setCurrentRoomIndex(prev => prev + 1)}
-              className="flex-1"
+              variant="secondary"
+              onClick={() => setShowSignature(true)}
+              fullWidth
             >
-              Next Room
-              <ChevronRight className="w-4 h-4 ml-1" />
+              Tap to Sign
+            </Button>
+          )}
+        </Card>
+      </div>
+
+      {/* Save Footer */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 pb-safe">
+        <div className="space-y-3">
+          {/* Summary */}
+          <div className="text-center text-sm">
+            {incompleteCount > 0 ? (
+              <span className="text-orange-600">
+                {incompleteCount} items need attention on return trip
+              </span>
+            ) : (
+              <span className="text-green-600">
+                ✓ All items checked - walk-through complete!
+              </span>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => handleSave(true, false)}
+              loading={saving}
+              disabled={!customerSignature}
+            >
+              <FileText className="w-4 h-4 mr-1" />
+              Save + PDF
+            </Button>
+            
+            <Button
+              onClick={() => handleSave(true, incompleteCount > 0)}
+              loading={saving}
+              disabled={!customerSignature}
+            >
+              <Save className="w-4 h-4 mr-1" />
+              Complete
             </Button>
           </div>
-        ) : (
-          /* Final room - completion options */
-          <div className="space-y-3">
-            {!customerSignature ? (
-              /* Get signature first */
-              <Button
-                onClick={() => setShowSignature(true)}
-                className="w-full"
-              >
-                Get Customer Signature
-                {issueCount > 0 && ` (${issueCount} issues found)`}
-              </Button>
-            ) : (
-              /* Completion options after signature */
-              <>
-                <div className="text-center text-sm text-green-600 font-medium">
-                  ✓ Signature captured
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleSave(true, false)}
-                    loading={saving}
-                    className="flex items-center justify-center gap-2"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Save + PDF
-                  </Button>
-                  
-                  {issueCount > 0 && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => handleSave(false, true)}
-                      loading={saving}
-                      className="flex items-center justify-center gap-2"
-                    >
-                      <Package className="w-4 h-4" />
-                      + Materials
-                    </Button>
-                  )}
-                </div>
-                
-                <Button
-                  onClick={() => handleSave(true, issueCount > 0)}
-                  loading={saving}
-                  className="w-full"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save All ({issueCount} issues → PDF + Materials)
-                </Button>
-              </>
-            )}
-            
-            {currentRoomIndex > 0 && (
-              <button
-                onClick={() => setCurrentRoomIndex(prev => prev - 1)}
-                className="w-full text-center text-sm text-gray-500 py-2"
-              >
-                ← Go back to previous room
-              </button>
-            )}
-          </div>
-        )}
+
+          {!customerSignature && (
+            <p className="text-xs text-center text-gray-500">
+              Customer signature required to complete
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
