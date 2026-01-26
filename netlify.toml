@@ -4,6 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  VITE_SUPABASE_URL = "https://nnqaihqyqcrfovejciff.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ucWFpaHF5cWNyZm92ZWpjaWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5NjU4MTMsImV4cCI6MjA4NDU0MTgxM30.9DKAIizMIGZRWHr6JqFTzw0QdGpVBkgGzri5Ih8RMm0"
 
 # SPA redirect - send all routes to index.html
 [[redirects]]
