@@ -134,3 +134,34 @@ CREATE POLICY "Users can insert preferences for their org's customers"
       )
     )
   );
+
+-- Fix sms_notifications policies
+DROP POLICY IF EXISTS "Users can view notifications for their org's properties" ON sms_notifications;
+CREATE POLICY "Users can view notifications for their org's properties"
+  ON sms_notifications FOR SELECT
+  USING (
+    property_id IN (
+      SELECT p.id FROM properties p
+      WHERE p.created_by_org_id IN (
+        SELECT organization_id FROM users WHERE id = (select auth.uid())
+      )
+    )
+    OR user_id = (select auth.uid())
+  );
+
+DROP POLICY IF EXISTS "Users can insert notifications" ON sms_notifications;
+CREATE POLICY "Users can insert notifications"
+  ON sms_notifications FOR INSERT
+  WITH CHECK (
+    property_id IS NULL OR property_id IN (
+      SELECT p.id FROM properties p
+      WHERE p.created_by_org_id IN (
+        SELECT organization_id FROM users WHERE id = (select auth.uid())
+      )
+    )
+  );
+
+-- Fix users table "user_insert" policy (if exists)
+DROP POLICY IF EXISTS "user_insert" ON users;
+CREATE POLICY "user_insert" ON users
+  FOR INSERT WITH CHECK (id = (select auth.uid()));
