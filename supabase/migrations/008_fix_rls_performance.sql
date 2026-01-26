@@ -216,3 +216,20 @@ CREATE POLICY "Update own contractor profile" ON contractor_profiles
 
 CREATE POLICY "Delete own contractor profile" ON contractor_profiles
   FOR DELETE USING (organization_id = get_user_org_id());
+
+-- Fix customers - consolidate overlapping SELECT policies
+DROP POLICY IF EXISTS "Portal users can view customer for their property" ON customers;
+DROP POLICY IF EXISTS "cust_select" ON customers;
+DROP POLICY IF EXISTS "Users read org customers" ON customers;
+
+-- Single consolidated SELECT policy
+CREATE POLICY "Read customers" ON customers
+  FOR SELECT USING (
+    -- Org users can read their org's customers
+    organization_id = get_user_org_id()
+    -- Portal users can view customer for their property (via portal code lookup)
+    OR id IN (
+      SELECT customer_id FROM properties 
+      WHERE portal_code IS NOT NULL
+    )
+  );
