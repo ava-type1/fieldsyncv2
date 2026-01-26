@@ -1,7 +1,35 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { createWorker, Worker } from 'tesseract.js';
-import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload } from 'lucide-react';
+import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload, Lightbulb } from 'lucide-react';
 import { Button } from '../ui/Button';
+
+const SCAN_TIP_DISMISSED_KEY = 'fieldsync_scan_tip_dismissed';
+
+function ScanGuidanceTip({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="absolute top-4 left-4 right-4 z-10 animate-fade-in">
+      <div className="bg-gray-800/95 backdrop-blur-sm border border-gray-700 rounded-xl p-4 shadow-lg">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary-500/20 flex items-center justify-center">
+            <Lightbulb className="w-5 h-5 text-primary-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm leading-relaxed">
+              📷 <span className="font-medium">Tip:</span> Turn phone landscape and capture just the customer info section at the top for best results
+            </p>
+          </div>
+          <button
+            onClick={onDismiss}
+            className="flex-shrink-0 text-gray-400 hover:text-white transition-colors p-1 -mt-1 -mr-1"
+            aria-label="Dismiss tip"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export interface ScannedWorkOrder {
   serialNumber?: string;
@@ -34,12 +62,27 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const [scannedData, setScannedData] = useState<ScannedWorkOrder | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [showScanTip, setShowScanTip] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workerRef = useRef<Worker | null>(null);
+
+  // Check if scan tip should be shown on mount
+  useEffect(() => {
+    const dismissed = localStorage.getItem(SCAN_TIP_DISMISSED_KEY);
+    if (!dismissed) {
+      setShowScanTip(true);
+    }
+  }, []);
+
+  // Handle dismissing the scan tip
+  const dismissScanTip = useCallback(() => {
+    setShowScanTip(false);
+    localStorage.setItem(SCAN_TIP_DISMISSED_KEY, 'true');
+  }, []);
 
   // Start camera with optimal settings for document scanning
   const startCamera = useCallback(async () => {
@@ -276,12 +319,15 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     
     // Fallback: Look for street number patterns
     if (!result.address) {
-      const addressPatterns = normalized.match(/(\d{2,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
+      // Require 3-5 digit street numbers to avoid false positives like "95 Phone"
+      const addressPatterns = normalized.match(/(\d{3,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
       
       for (const addr of addressPatterns) {
         // Skip Ocala plant address
         if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
         if (/^\d+$/.test(addr.trim())) continue;
+        // Skip false positives - common form field keywords
+        if (addr.match(/Phone|Serial|Claim|Model|Date|Ocala|Plant|Service|Department|Copy|Fax|Lot|Setup|Sales|Dealer|Cell|Work|Home|Zip|State|City/i)) continue;
         
         let cleanAddr = addr.trim();
         // Fix mushed text
