@@ -192,7 +192,12 @@ export function MapView() {
                 center={mapCenter}
                 zoom={10}
                 style={{ height: '100%', width: '100%' }}
-                zoomControl={false}
+                zoomControl={true}
+                scrollWheelZoom={true}
+                dragging={true}
+                touchZoom={true}
+                doubleClickZoom={true}
+                boxZoom={true}
               >
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
