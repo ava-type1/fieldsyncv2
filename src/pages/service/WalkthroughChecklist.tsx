@@ -301,14 +301,14 @@ export function WalkthroughChecklist() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setShowCamera(item.id)}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700"
+                      className="flex items-center gap-2 px-3 py-2 bg-blue-100 rounded-lg text-sm text-blue-700"
                     >
                       <Camera className="w-4 h-4" />
-                      Add Photo
+                      Add Photo (optional)
                     </button>
                     <button
                       onClick={() => setExpandedItem(null)}
-                      className="px-3 py-2 text-sm text-gray-500"
+                      className="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm"
                     >
                       Done
                     </button>
