@@ -28,8 +28,8 @@ interface CaptureOptions {
 }
 
 // Image compression settings
-const MAX_IMAGE_SIZE = 1920;
-const IMAGE_QUALITY = 0.8;
+const MAX_IMAGE_SIZE = 2560; // Higher max for better detail retention
+const IMAGE_QUALITY = 0.92; // High quality JPEG (0.9+ recommended for OCR/document use)
 const THUMBNAIL_SIZE = 200;
 
 export function usePhotos(options: UsePhotosOptions = {}): UsePhotosResult {

@@ -1,35 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { createWorker, Worker } from 'tesseract.js';
-import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload, Lightbulb } from 'lucide-react';
+import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload } from 'lucide-react';
 import { Button } from '../ui/Button';
 
-const SCAN_TIP_DISMISSED_KEY = 'fieldsync_scan_tip_dismissed';
-
-function ScanGuidanceTip({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div className="absolute top-4 left-4 right-4 z-10 animate-fade-in">
-      <div className="bg-gray-800/95 backdrop-blur-sm border border-gray-700 rounded-xl p-4 shadow-lg">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary-500/20 flex items-center justify-center">
-            <Lightbulb className="w-5 h-5 text-primary-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm leading-relaxed">
-              📷 <span className="font-medium">Tip:</span> Turn phone landscape and capture just the customer info section at the top for best results
-            </p>
-          </div>
-          <button
-            onClick={onDismiss}
-            className="flex-shrink-0 text-gray-400 hover:text-white transition-colors p-1 -mt-1 -mr-1"
-            aria-label="Dismiss tip"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Scan tip removed - landscape orientation didn't improve OCR results
 
 export interface ScannedWorkOrder {
   serialNumber?: string;
@@ -62,7 +36,6 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const [scannedData, setScannedData] = useState<ScannedWorkOrder | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [showScanTip, setShowScanTip] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,28 +43,16 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const streamRef = useRef<MediaStream | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
-  // Check if scan tip should be shown on mount
-  useEffect(() => {
-    const dismissed = localStorage.getItem(SCAN_TIP_DISMISSED_KEY);
-    if (!dismissed) {
-      setShowScanTip(true);
-    }
-  }, []);
-
-  // Handle dismissing the scan tip
-  const dismissScanTip = useCallback(() => {
-    setShowScanTip(false);
-    localStorage.setItem(SCAN_TIP_DISMISSED_KEY, 'true');
-  }, []);
-
   // Start camera with optimal settings for document scanning
   const startCamera = useCallback(async () => {
     try {
+      // Request highest available resolution for better OCR accuracy
+      // Use min constraints to ensure we don't get a low-quality stream
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { min: 1920, ideal: 4096 },
+          height: { min: 1080, ideal: 2160 },
           // Request better exposure for documents
           advanced: [{
             exposureMode: 'continuous',
@@ -547,9 +508,6 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
               className="w-full h-full object-cover"
               onLoadedMetadata={() => videoRef.current?.play()}
             />
-            
-            {/* Scan guidance tip */}
-            {showScanTip && <ScanGuidanceTip onDismiss={dismissScanTip} />}
             
             {/* Overlay guide */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

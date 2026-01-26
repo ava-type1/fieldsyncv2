@@ -16,8 +16,8 @@ export function PhotoCapture({ onCapture }: PhotoCaptureProps) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Compress image
-    const blob = await compressImage(file, 1920, 0.8);
+    // Compress image - use high quality for better detail
+    const blob = await compressImage(file, 2560, 0.92);
     const localUri = URL.createObjectURL(blob);
     const id = `photo-${Date.now()}`;
 
