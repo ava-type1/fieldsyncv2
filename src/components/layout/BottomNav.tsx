@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, MapPin, DollarSign, LayoutDashboard, Settings, ScanLine } from 'lucide-react';
+import { Home, MapPin, Calendar, DollarSign, LayoutDashboard, Settings, ScanLine } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 
 export function BottomNav() {
@@ -7,7 +7,7 @@ export function BottomNav() {
 
   const leftItems = [
     { to: '/properties', icon: Home, label: 'Properties' },
-    { to: '/map', icon: MapPin, label: 'Map' },
+    { to: '/calendar', icon: Calendar, label: 'Schedule' },
   ];
 
   const rightItems = [

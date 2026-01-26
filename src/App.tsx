@@ -19,6 +19,7 @@ import { MaterialsList } from './pages/materials/MaterialsList';
 import { Dashboard } from './pages/manager/Dashboard';
 import { ReviewWalkthrough } from './pages/manager/ReviewWalkthrough';
 import { MapView } from './pages/map/MapView';
+import { Calendar } from './pages/calendar/Calendar';
 import { Settings } from './pages/settings/Settings';
 import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { OrganizationSettings } from './pages/settings/OrganizationSettings';
@@ -108,6 +109,7 @@ export default function App() {
         <Route path="/quick-start" element={<QuickStart />} />
         <Route path="/materials" element={<MaterialsList />} />
         <Route path="/map" element={<MapView />} />
+        <Route path="/calendar" element={<Calendar />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/dashboard/review/:id" element={<ReviewWalkthrough />} />
         <Route path="/pay" element={<PayCalculator />} />
