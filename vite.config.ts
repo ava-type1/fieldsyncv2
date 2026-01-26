@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  base: '/fieldsyncv2/',
   plugins: [
     react(),
     VitePWA({
@@ -12,7 +13,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,woff,ttf}'],
         // Precache the offline page
-        navigateFallback: '/offline.html',
+        navigateFallback: '/fieldsyncv2/offline.html',
         navigateFallbackDenylist: [
           /^\/api\//,
           /^\/portal\//,
