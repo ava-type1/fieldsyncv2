@@ -40,6 +40,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nativeCameraRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
@@ -661,10 +662,25 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
           </div>
           
           <div className="flex-shrink-0 bg-black/90 p-3 space-y-2 safe-area-bottom">
-            <Button onClick={captureImage} fullWidth size="lg">
+            {/* Native camera - best quality, recommended */}
+            <Button 
+              onClick={() => nativeCameraRef.current?.click()} 
+              fullWidth 
+              size="lg"
+              className="bg-green-600 hover:bg-green-700"
+            >
               <Camera className="w-5 h-5 mr-2" />
-              Capture
+              📸 Take Photo (Best Quality)
             </Button>
+            
+            <input
+              ref={nativeCameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
             
             <Button 
               variant="secondary" 
