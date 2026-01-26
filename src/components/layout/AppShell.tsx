@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { BottomNav } from './BottomNav';
 import { Header } from './Header';
+import { OfflineIndicator } from '../offline/OfflineIndicator';
 
 export function AppShell() {
   return (
@@ -10,6 +11,7 @@ export function AppShell() {
         <Outlet />
       </main>
       <BottomNav />
+      <OfflineIndicator />
     </div>
   );
 }

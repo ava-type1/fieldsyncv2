@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapPin, Phone, MessageSquare, ChevronLeft, Play } from 'lucide-react';
+import { MapPin, Phone, MessageSquare, ChevronLeft, Play, Navigation } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { PropertyDetailSkeleton } from '../../components/ui/Skeleton';
 import { PhaseTimeline } from '../../components/phases/PhaseTimeline';
+import { OnMyWay } from '../../components/messaging/OnMyWay';
 import { supabase } from '../../lib/supabase';
 import type { Property, Customer, Phase } from '../../types';
 
@@ -172,6 +173,16 @@ export function PropertyDetail() {
             Text
           </a>
         </div>
+      </div>
+
+      {/* On My Way */}
+      <div className="p-4">
+        <OnMyWay
+          customerName={`${property.customer.firstName} ${property.customer.lastName}`}
+          customerPhone={property.customer.phone}
+          address={address}
+          onNavigate={() => window.open(mapsUrl, '_blank')}
+        />
       </div>
 
       {/* Service Action */}
