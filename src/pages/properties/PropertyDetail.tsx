@@ -116,7 +116,12 @@ export function PropertyDetail() {
   }
 
   const address = `${property.street}, ${property.city}, ${property.state} ${property.zip}`;
-  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(address)}`;
+  const encodedAddress = encodeURIComponent(address);
+  // Use Apple Maps on iOS, Google Maps elsewhere
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const mapsUrl = isIOS 
+    ? `maps://maps.apple.com/?q=${encodedAddress}`
+    : `https://maps.google.com/?q=${encodedAddress}`;
 
   // Find current service phase (walkthrough or punch_list)
   const servicePhase = property.phases.find(

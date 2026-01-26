@@ -83,7 +83,16 @@ export function MapView() {
 
   const openInMaps = (property: PropertyWithCustomer) => {
     const address = `${property.street}, ${property.city}, ${property.state} ${property.zip}`;
-    const url = `https://maps.google.com/?q=${encodeURIComponent(address)}`;
+    const encodedAddress = encodeURIComponent(address);
+    
+    // Detect iOS (iPhone, iPad, iPod)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    
+    // Use Apple Maps on iOS, Google Maps elsewhere
+    const url = isIOS 
+      ? `maps://maps.apple.com/?q=${encodedAddress}`
+      : `https://maps.google.com/?q=${encodedAddress}`;
+    
     window.open(url, '_blank');
   };
 
