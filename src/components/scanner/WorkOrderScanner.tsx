@@ -209,6 +209,76 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     reader.readAsDataURL(file);
   };
 
+  // Known Nobility Homes model names for fuzzy matching
+  const NOBILITY_MODELS = [
+    'Hailey', 'Kingswood', 'Tropic Isle', 'Kensington', 'Lakewood', 'Magnolia',
+    'Palm Bay', 'Cedar Key', 'Bay Shore', 'Regency', 'Brookhaven', 'Wind Zone',
+    'Cypress', 'Coastal', 'Windsor', 'Carolina', 'Sandalwood', 'Flagler', 'Sunrise'
+  ];
+  
+  // Common OCR substitution errors and corrections
+  const ocrCorrections: Record<string, string> = {
+    // Common letter misreads for Taylor
+    'raylor': 'Taylor', 'laylor': 'Taylor', '1aylor': 'Taylor', 'Tay1or': 'Taylor', 'Tayl0r': 'Taylor',
+    'Halley': 'Hailey', 'Ha1ley': 'Hailey', 'Hai1ey': 'Hailey', 'Hailay': 'Hailey',
+    'l-lailey': 'Hailey', 'Hai ley': 'Hailey',
+    'lessica': 'Jessica', 'Jessíca': 'Jessica', '1essica': 'Jessica', 'Jess1ca': 'Jessica',
+    'lacksonville': 'Jacksonville', '1acksonville': 'Jacksonville', 'Jacksonvi11e': 'Jacksonville',
+    'Noe1': 'Noel', 'N0el': 'Noel',
+    'Mede1ros': 'Medeiros', 'Medeirns': 'Medeiros', 'Medeiros': 'Medeiros',
+    'rrent': 'Trent', 'lrent': 'Trent', 'rrentn': 'Trenton', 'lrenton': 'Trenton',
+    // State variations
+    'Fl': 'FL', 'fl': 'FL', 'fL': 'FL',
+  };
+  
+  // Apply OCR corrections to text
+  const applyOcrCorrections = (text: string): string => {
+    let corrected = text;
+    for (const [wrong, right] of Object.entries(ocrCorrections)) {
+      corrected = corrected.replace(new RegExp(wrong, 'gi'), right);
+    }
+    // Fix common OCR issues: lowercase at start of word that should be caps
+    // e.g., "raylor" -> "Taylor", "lessica" -> "Jessica"
+    corrected = corrected.replace(/\b([rl1])([aeiou][a-z]+)\b/gi, (match, first, rest) => {
+      const lowerMatch = match.toLowerCase();
+      // Check if this looks like a name that should start with T or J
+      if (lowerMatch.match(/^[rl1]aylor/i)) return 'Taylor';
+      if (lowerMatch.match(/^[l1]essica/i)) return 'Jessica';
+      if (lowerMatch.match(/^[l1]ack/i)) return match.replace(/^[l1]/i, 'J');
+      return match;
+    });
+    return corrected;
+  };
+  
+  // Fuzzy match against known model names
+  const fuzzyMatchModel = (text: string): string | null => {
+    const cleanText = text.toLowerCase().replace(/[^a-z\s]/gi, '');
+    
+    for (const model of NOBILITY_MODELS) {
+      const modelLower = model.toLowerCase();
+      // Direct match
+      if (cleanText.includes(modelLower)) return model;
+      
+      // Fuzzy match: allow 1-2 character differences
+      const words = cleanText.split(/\s+/);
+      for (const word of words) {
+        if (word.length < 4) continue;
+        // Check Levenshtein-like similarity
+        let matches = 0;
+        const shorter = word.length < modelLower.length ? word : modelLower;
+        const longer = word.length < modelLower.length ? modelLower : word;
+        for (let i = 0; i < shorter.length; i++) {
+          if (longer.includes(shorter[i])) matches++;
+        }
+        // If 80%+ characters match, consider it a match
+        if (matches / shorter.length >= 0.8 && shorter.length >= 4) {
+          return model;
+        }
+      }
+    }
+    return null;
+  };
+  
   // Parse extracted text - optimized for Nobility Homes Service Department forms
   // Form layout: 
   //   Header: Plant #1, 3741 SW 7th street, Ocala FL 34474, Phone/Fax
@@ -222,8 +292,21 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     
     console.log('=== OCR Raw Text ===\n', text, '\n=== END ===');
     
-    // Normalize the text: collapse multiple spaces, normalize line endings
-    const normalized = text.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ');
+    // Apply OCR corrections first
+    let normalized = applyOcrCorrections(text);
+    
+    // Normalize: collapse multiple spaces, normalize line endings
+    normalized = normalized.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ');
+    
+    // Remove known header content that shouldn't be parsed as customer data
+    // Plant address: "Plant #1, 3741 SW 7th Street, Ocala FL 34474"
+    const withoutHeader = normalized
+      .replace(/Plant\s*#?\s*\d[^,\n]*Ocala[^,\n]*34474[^,\n]*/gi, '')
+      .replace(/3741\s*SW\s*7th\s*[Ss]treet/gi, '')
+      .replace(/Ocala\s*,?\s*FL\s*,?\s*34474/gi, '')
+      .replace(/352[-.\s]*732[-.\s]*\d{4}/g, ''); // Remove plant phone numbers
+    
+    console.log('=== After header removal ===\n', withoutHeader, '\n=== END ===');
     
     // === SERIAL NUMBER ===
     // Pattern: X#-#####[AB] - letter, digit, dash, 5 digits, optional letters
@@ -234,102 +317,69 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // === NAME ===
-    // IMPORTANT: The customer name comes RIGHT AFTER the "Name" label on the form
-    // Salesperson name comes after "Sales person" label - we must NOT grab that
+    // Strategy: Look for "Name" label, then extract the capitalized name that follows
+    // OCR may garble text, so we also try pattern matching on name-like text
     
-    // First, try to find text immediately after "Name" label but BEFORE "Address" or other fields
-    // Format: "Name Jessica Noel-Medeiros" or "Name    Bruce Pappy    Donna Pappy"
+    // First: Look for text between "Name" label and next field label
+    // The form shows: "Name Jessica Noel-Medeiros" followed by another name or "Address"
+    const nameSection = withoutHeader.match(/Name\s+([\s\S]{5,60}?)(?=\s*(?:Address|Home\s*Ph|Dealer|Sales|Serial|\n\s*\n|$))/i);
     
-    // Pattern: "Name" followed by name (possibly with Jr./Sr.), stopping before Address/Home/Dealer/Sales
-    // Handle: "Timothy Marquis Jr." or "Timothy MarquisJr." (mushed)
-    const nameAfterLabel = normalized.match(/Name\s+([A-Z][a-z]+(?:[\-\s][A-Z][a-z]+)+(?:\s*(?:Jr\.?|Sr\.?|II|III|IV))?)(?=\s+(?:Address|Home|Dealer|Sales|Serial|Velvet|[A-Z][a-z]+\s+[A-Z]|\d|$))/i);
-    
-    if (nameAfterLabel) {
-      let fullName = nameAfterLabel[1].trim();
-      // If there are two people (e.g., "Bruce Pappy Donna Pappy"), take only the first
-      // Split by double-capital pattern (end of one name, start of another)
-      const twoPeopleMatch = fullName.match(/^([A-Z][a-z]+(?:[\-\s][A-Z][a-z\-]+)?)\s+[A-Z][a-z]+\s+[A-Z]/);
-      if (twoPeopleMatch) {
-        fullName = twoPeopleMatch[1];
-      }
-      // Handle "Firstname Lastname" or "Firstname Hyphen-Lastname"
-      const nameParts = fullName.split(/\s+/);
-      if (nameParts.length >= 2) {
-        result.customerName = nameParts.slice(0, 3).join(' '); // Take up to 3 parts (First Middle-Last or First Last Jr.)
+    if (nameSection) {
+      const section = nameSection[1];
+      // Look for capitalized name patterns: "First Last" or "First Last-Name" or "First Middle Last"
+      // Must have capital at start, may have hyphen
+      const nameMatch = section.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?:[\-][A-Z][a-z]+)?)/);
+      if (nameMatch) {
+        result.customerName = nameMatch[1].trim();
       }
     }
     
-    // Fallback: Look in the area between "Name" and "Address" labels
+    // Fallback: Scan entire text (minus plant header) for name patterns
     if (!result.customerName) {
-      const betweenLabels = normalized.match(/Name\s+([\s\S]+?)\s+Address/i);
-      if (betweenLabels) {
-        // Extract name pattern from this section
-        const section = betweenLabels[1];
-        const nameMatch = section.match(/([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/);
-        if (nameMatch) {
-          result.customerName = `${nameMatch[1]} ${nameMatch[2]}`;
-        }
-      }
-    }
-    
-    // Last resort: Look for common first names but NOT after "Sales person" or "Salesperson"
-    if (!result.customerName) {
-      const commonFirstNames = /^(james|john|robert|michael|david|william|richard|joseph|thomas|charles|christopher|daniel|matthew|anthony|mark|steven|paul|andrew|joshua|kenneth|kevin|brian|george|timothy|ronald|edward|jason|jeffrey|ryan|jacob|gary|nicholas|eric|jonathan|stephen|larry|justin|scott|brandon|benjamin|samuel|gregory|alexander|patrick|dennis|tyler|aaron|adam|nathan|henry|zachary|peter|kyle|bruce|sean|christian|austin|arthur|jesse|dylan|bryan|joe|jordan|albert|logan|randy|roy|eugene|russell|mason|philip|louis|carl|ethan|keith|roger|barry|walter|noah|alan|donna|mary|patricia|jennifer|linda|barbara|elizabeth|susan|jessica|sarah|karen|lisa|nancy|betty|margaret|sandra|ashley|kimberly|emily|michelle|dorothy|carol|amanda|melissa|deborah|stephanie|rebecca|sharon|laura|cynthia|kathleen|amy|angela|anna|brenda|pamela|emma|nicole|helen|samantha|katherine|christine|rachel|janet|catherine|maria|heather|diane|ruth|julie|olivia|joyce|virginia|victoria|kelly|lauren|christina|megan|andrea|cheryl|hannah|martha|gloria|teresa|sara|madison|kathryn|janice|jean|alice|sophia|grace|denise|amber|marilyn|danielle|isabella|diana|natalie|brittany|charlotte|marie|kayla|alexis|velvet)$/i;
+      // Common first names - extensive list
+      const firstNamePattern = /\b(James|John|Robert|Michael|David|William|Richard|Joseph|Thomas|Charles|Christopher|Daniel|Matthew|Anthony|Mark|Steven|Paul|Andrew|Joshua|Kenneth|Kevin|Brian|George|Timothy|Ronald|Edward|Jason|Jeffrey|Ryan|Jacob|Gary|Nicholas|Eric|Jonathan|Stephen|Larry|Justin|Scott|Brandon|Benjamin|Samuel|Gregory|Alexander|Patrick|Dennis|Tyler|Aaron|Adam|Nathan|Henry|Zachary|Peter|Kyle|Bruce|Sean|Christian|Austin|Arthur|Jesse|Dylan|Bryan|Joe|Jordan|Albert|Logan|Randy|Roy|Eugene|Russell|Mason|Philip|Louis|Carl|Ethan|Keith|Roger|Barry|Walter|Noah|Alan|Donna|Mary|Patricia|Jennifer|Linda|Barbara|Elizabeth|Susan|Jessica|Sarah|Karen|Lisa|Nancy|Betty|Margaret|Sandra|Ashley|Kimberly|Emily|Michelle|Dorothy|Carol|Amanda|Melissa|Deborah|Stephanie|Rebecca|Sharon|Laura|Cynthia|Kathleen|Amy|Angela|Anna|Brenda|Pamela|Emma|Nicole|Helen|Samantha|Katherine|Christine|Rachel|Janet|Catherine|Maria|Heather|Diane|Ruth|Julie|Olivia|Joyce|Virginia|Victoria|Kelly|Lauren|Christina|Megan|Andrea|Cheryl|Hannah|Martha|Gloria|Teresa|Sara|Madison|Kathryn|Janice|Jean|Alice|Sophia|Grace|Denise|Amber|Marilyn|Danielle|Isabella|Diana|Natalie|Brittany|Charlotte|Marie|Kayla|Alexis|Taylor|Velvet|Crystal|Tiffany|Brandy|Destiny)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/;
       
-      // Remove the salesperson section from consideration
-      const textWithoutSales = normalized.replace(/Sales\s*person\s+[A-Za-z\s]+/gi, '');
+      // Don't match names in salesperson section
+      const textWithoutSales = withoutHeader.replace(/Sales\s*person[:\s]+[A-Za-z\s]+/gi, '___SALES___');
       
-      // Find name patterns
-      const namePatterns = textWithoutSales.match(/([A-Z][a-z]+)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/g) || [];
-      
-      for (const potentialName of namePatterns) {
-        const parts = potentialName.trim().split(/\s+/);
-        const firstName = parts[0];
-        
-        // Skip place names and labels
-        if (potentialName.match(/florida|ocala|jacksonville|trenton|plant|street|lane|drive|road|service|department|phone|dealer|serial|model/i)) continue;
-        
-        if (commonFirstNames.test(firstName)) {
-          result.customerName = potentialName;
-          break;
-        }
+      const fnMatch = textWithoutSales.match(firstNamePattern);
+      if (fnMatch) {
+        result.customerName = `${fnMatch[1]} ${fnMatch[2]}`;
       }
     }
     
     // === ADDRESS ===
     // Look for "Address" label followed by street address
-    // OCR might mush text together like "7109 SE77lane" 
+    // CRITICAL: Skip Ocala plant address (3741 SW 7th Street)
     
-    // First try: Find text after "Address" label
-    const addressAfterLabel = normalized.match(/Address\s+(\d+\s*[A-Za-z0-9\s]+?)(?=\s*(?:City|State|Zip|Home|$))/i);
+    // Try labeled format
+    const addressAfterLabel = withoutHeader.match(/Address\s+(\d+\s*[A-Za-z0-9\s]+?)(?=\s*(?:City|State|Zip|Home|Ph|$))/i);
     if (addressAfterLabel) {
       let addr = addressAfterLabel[1].trim();
       // Fix mushed text: "SE77" -> "SE 77", "77lane" -> "77 Lane"
-      addr = addr.replace(/([A-Za-z])(\d)/g, '$1 $2');  // "SE77" -> "SE 77"
-      addr = addr.replace(/(\d)([A-Za-z])/g, '$1 $2');  // "77lane" -> "77 lane"
+      addr = addr.replace(/([A-Za-z])(\d)/g, '$1 $2');
+      addr = addr.replace(/(\d)([A-Za-z])/g, '$1 $2');
       addr = addr.replace(/\s+/g, ' ').trim();
       // Capitalize street suffix
       addr = addr.replace(/\b(lane|ln|street|st|road|rd|drive|dr|avenue|ave|court|ct|circle|cir|way|place|pl|boulevard|blvd|trail|trl|terrace|ter)\b/gi, 
         (m) => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
-      if (addr.length >= 5) {
+      if (addr.length >= 5 && !addr.match(/3741|7th/i)) {
         result.address = addr;
       }
     }
     
     // Fallback: Look for street number patterns
     if (!result.address) {
-      // Require 3-5 digit street numbers to avoid false positives like "95 Phone"
-      const addressPatterns = normalized.match(/(\d{3,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
+      const addressPatterns = withoutHeader.match(/(\d{3,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
       
       for (const addr of addressPatterns) {
         // Skip Ocala plant address
         if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
         if (/^\d+$/.test(addr.trim())) continue;
-        // Skip false positives - common form field keywords
+        // Skip form field keywords
         if (addr.match(/Phone|Serial|Claim|Model|Date|Ocala|Plant|Service|Department|Copy|Fax|Lot|Setup|Sales|Dealer|Cell|Work|Home|Zip|State|City/i)) continue;
         
         let cleanAddr = addr.trim();
-        // Fix mushed text
         cleanAddr = cleanAddr.replace(/([A-Za-z])(\d)/g, '$1 $2');
         cleanAddr = cleanAddr.replace(/(\d)([A-Za-z])/g, '$1 $2');
         cleanAddr = cleanAddr.replace(/\s+/g, ' ');
@@ -342,116 +392,163 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // === CITY, STATE, ZIP ===
-    // Format: "City    bryceville    State  fl    Zip    32009"
-    // Or might be: "Trenton FL 32693" or "Trenton, FL 32693"
+    // Format: "City Jacksonville State FL Zip 32208"
+    // CRITICAL: Must NOT pick up Ocala/34474 from plant header
     
-    // Try labeled format first
-    let cityMatch = normalized.match(/City\s+([A-Za-z][A-Za-z\s]*?)(?=\s+(?:State|FL|Fl|fl))/i);
-    if (cityMatch) {
+    // Try labeled format: "City [name] State"
+    let cityMatch = withoutHeader.match(/City\s+([A-Za-z][A-Za-z\s]*?)(?=\s+(?:State|FL|Fl|fl))/i);
+    if (cityMatch && !cityMatch[1].match(/Ocala/i)) {
       result.city = cityMatch[1].trim();
-      result.city = result.city.charAt(0).toUpperCase() + result.city.slice(1).toLowerCase();
+      // Proper case
+      result.city = result.city.split(/\s+/).map(w => 
+        w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      ).join(' ');
     }
     
-    const stateMatch = normalized.match(/(?:State\s+)?([Ff][Ll])(?=\s+(?:Zip|\d{5}))/i);
+    // State - look for "State FL" or standalone "FL" near zip
+    const stateMatch = withoutHeader.match(/State\s+([A-Z]{2})|([A-Z]{2})\s+(?:Zip\s*)?\d{5}/i);
     if (stateMatch) {
-      result.state = 'FL';
+      result.state = (stateMatch[1] || stateMatch[2]).toUpperCase();
     }
     
-    // Find ZIP but skip Ocala plant ZIPs (34474, 33474)
-    const zipMatches = normalized.match(/(?:Zip\s+)?(\d{5})(?!\d)/gi) || [];
-    for (const zm of zipMatches) {
-      const zip = zm.replace(/\D/g, '');
-      // Skip Ocala plant ZIP codes
-      if (zip !== '34474' && zip !== '33474') {
-        result.zip = zip;
-        break;
+    // ZIP: Must skip Ocala plant ZIPs (34474, 33474)
+    // Look for "Zip XXXXX" pattern first
+    const zipLabelMatch = withoutHeader.match(/Zip\s+(\d{5})/i);
+    if (zipLabelMatch && !['34474', '33474'].includes(zipLabelMatch[1])) {
+      result.zip = zipLabelMatch[1];
+    }
+    
+    // Fallback: find ZIPs not associated with Ocala
+    if (!result.zip) {
+      // Find all 5-digit numbers that look like ZIPs (not part of phone, serial, etc.)
+      const potentialZips = withoutHeader.match(/(?<![0-9\-])(\d{5})(?![0-9\-])/g) || [];
+      for (const pz of potentialZips) {
+        // Skip Ocala area codes and plant ZIP
+        if (!['34474', '33474', '34471', '34472', '34473', '34475', '34476', '34477', '34478', '34479', '34480', '34481', '34482', '34483'].includes(pz)) {
+          result.zip = pz;
+          break;
+        }
       }
     }
     
-    // Fallback: Look for "City, FL ZIP" or "City FL ZIP" pattern
+    // Try "City, FL ZIP" or "City FL ZIP" pattern
     if (!result.city) {
-      const cityStateZip = normalized.match(/([A-Z][a-z]+(?:ville|ton|land|burg|ford|field|wood|beach|springs|park)?)[,\s]+(?:FL|Fl|fl)[,\s]+(\d{5})/);
+      // Match city names (may end in common suffixes) followed by FL and ZIP
+      const cityStateZip = withoutHeader.match(/([A-Z][a-z]+(?:ville|ton|land|burg|ford|field|wood|beach|springs|park|son)?)[,\s]+(?:FL|Fl|fl)[,\s]+(\d{5})/);
       if (cityStateZip && cityStateZip[1].toLowerCase() !== 'ocala') {
         result.city = cityStateZip[1];
         result.state = 'FL';
-        result.zip = cityStateZip[2];
+        if (!['34474', '33474'].includes(cityStateZip[2])) {
+          result.zip = cityStateZip[2];
+        }
       }
     }
     
-    // Another fallback: common Florida city names in text (including OCR typos)
-    const flCities = normalized.match(/(Trenton|Tremton|Chiefland|Gainesville|Jacksonville|Ocala|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White)/i);
-    if (flCities && !result.city && flCities[1].toLowerCase() !== 'ocala') {
-      let city = flCities[1];
-      // Fix common OCR typos
-      if (city.toLowerCase() === 'tremton') city = 'Trenton';
-      result.city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
-      result.state = 'FL';
+    // Fallback: known Florida city names (OCR-corrected versions included)
+    if (!result.city) {
+      const flCities = withoutHeader.match(/\b(Trenton|Jacksonville|Gainesville|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White|Chiefland|Cedar\s*Key|Crystal\s*River|Inverness|Dunnellon|Belleview|Summerfield|The\s*Villages|Leesburg|Tavares|Eustis|Mount\s*Dora|Sanford|Daytona|Palm\s*Coast|St\.?\s*Augustine)\b/i);
+      if (flCities) {
+        let city = flCities[1];
+        result.city = city.split(/\s+/).map(w => 
+          w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+        ).join(' ');
+        result.state = 'FL';
+      }
     }
     
     // === PHONE NUMBERS ===
-    // Format variations: 
-    //   "Ph: 352-284-2512 Work Ph: 352-810-6125 Cell Ph:"
-    //   "Home Ph: 904-759-3894  Work Ph: 727-463-9890  Cell Ph:"
-    // Phone patterns: xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx xxx xxxx, xxxxxxxxxx
     const phoneRegex = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/;
     
-    // Home/Primary phone - look for "Ph:" or "Home Ph:" 
-    const homePhMatch = normalized.match(new RegExp(`(?:Home\\s*)?Ph[:\\s]*${phoneRegex.source}`, 'i'));
+    // Home/Primary phone
+    const homePhMatch = withoutHeader.match(new RegExp(`(?:Home\\s*)?Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (homePhMatch) {
       result.phone = `${homePhMatch[1]}-${homePhMatch[2]}-${homePhMatch[3]}`;
     }
     
     // Work phone
-    const workPhMatch = normalized.match(new RegExp(`Work\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
+    const workPhMatch = withoutHeader.match(new RegExp(`Work\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (workPhMatch) {
       result.workPhone = `${workPhMatch[1]}-${workPhMatch[2]}-${workPhMatch[3]}`;
     }
     
     // Cell phone
-    const cellPhMatch = normalized.match(new RegExp(`Cell\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
+    const cellPhMatch = withoutHeader.match(new RegExp(`Cell\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (cellPhMatch) {
       result.cellPhone = `${cellPhMatch[1]}-${cellPhMatch[2]}-${cellPhMatch[3]}`;
     }
     
-    // Fallback: find all phone numbers and assign in order, skipping plant numbers
+    // Fallback: collect all phones, skip plant numbers
     const phonePattern = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/g;
     const allPhones: string[] = [];
     let phoneMatch;
     
-    while ((phoneMatch = phonePattern.exec(normalized)) !== null) {
+    while ((phoneMatch = phonePattern.exec(withoutHeader)) !== null) {
       const num = `${phoneMatch[1]}-${phoneMatch[2]}-${phoneMatch[3]}`;
       // Skip plant numbers (352-732-xxxx)
-      if (!num.startsWith('352-732')) {
-        // Avoid duplicates
-        if (!allPhones.includes(num)) {
-          allPhones.push(num);
-        }
+      if (!num.startsWith('352-732') && !allPhones.includes(num)) {
+        allPhones.push(num);
       }
     }
     
-    // Fill in any missing phones from the list
     if (!result.phone && allPhones.length > 0) result.phone = allPhones[0];
     if (!result.workPhone && allPhones.length > 1) result.workPhone = allPhones[1];
     if (!result.cellPhone && allPhones.length > 2) result.cellPhone = allPhones[2];
     
     // === LOT / DEALER ===
-    // Format: "Dealer    Lot 18-Yulee"
-    const lotMatch = normalized.match(/(?:Dealer|Lot)\s+(?:Lot\s+)?(\d+[\-\s][A-Za-z]+)/i);
+    const lotMatch = withoutHeader.match(/(?:Dealer|Lot)\s+(?:Lot\s+)?(\d+[\-\s]*[A-Za-z]+)/i);
     if (lotMatch) {
-      result.lotNumber = lotMatch[1].trim();
-      result.dealer = `Lot ${lotMatch[1].trim()}`;
+      result.lotNumber = lotMatch[1].replace(/\s+/g, '-').trim();
+      result.dealer = `Lot ${result.lotNumber}`;
     }
     
     // === MODEL ===
-    const modelMatch = normalized.match(/Model\s*#?\s+([A-Za-z0-9\s]+?)(?=\s+(?:C\s*of|Date|$|\n))/i);
+    // First try: Look for "Model #" or "Model" label
+    const modelMatch = withoutHeader.match(/Model\s*#?\s+([A-Za-z0-9\s\-]+?)(?=\s+(?:C\s*of|Date|Serial|Dealer|$|\n))/i);
     if (modelMatch) {
-      result.model = modelMatch[1].trim();
+      const rawModel = modelMatch[1].trim();
+      // Try to fuzzy match to known model
+      const fuzzyModel = fuzzyMatchModel(rawModel);
+      if (fuzzyModel) {
+        result.model = fuzzyModel;
+      } else {
+        // Clean up: take first word that looks like a model name
+        const cleanModel = rawModel.match(/^([A-Z][a-z]+)/i);
+        if (cleanModel) {
+          result.model = cleanModel[1];
+        }
+      }
+    }
+    
+    // Fallback: scan for known model names anywhere in text
+    if (!result.model) {
+      const modelFromText = fuzzyMatchModel(withoutHeader);
+      if (modelFromText) {
+        result.model = modelFromText;
+      }
     }
     
     // === SALESPERSON ===
-    const salespersonMatch = normalized.match(/Sales\s*person\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
+    // OCR often misreads initial capital (T -> r, J -> l)
+    let salespersonMatch = withoutHeader.match(/Sales\s*person[:\s]+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
     if (salespersonMatch) {
-      result.salesperson = salespersonMatch[1].trim();
+      let name = salespersonMatch[1].trim();
+      // Apply OCR corrections
+      name = applyOcrCorrections(name);
+      // Fix lowercase start that should be uppercase
+      const nameParts = name.split(/\s+/);
+      result.salesperson = nameParts.map(p => 
+        p.charAt(0).toUpperCase() + p.slice(1)
+      ).join(' ');
+    }
+    
+    // === SETUP BY ===
+    const setupMatch = withoutHeader.match(/Set\s*up\s*(?:by)?[:\s]+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
+    if (setupMatch) {
+      let name = setupMatch[1].trim();
+      name = applyOcrCorrections(name);
+      result.setupBy = name.split(/\s+/).map(p => 
+        p.charAt(0).toUpperCase() + p.slice(1)
+      ).join(' ');
     }
     
     return result;
