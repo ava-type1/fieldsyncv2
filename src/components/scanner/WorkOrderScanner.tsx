@@ -41,16 +41,33 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const streamRef = useRef<MediaStream | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
-  // Start camera
+  // Start camera with optimal settings for document scanning
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           facingMode: 'environment',
           width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          height: { ideal: 1080 },
+          // Request better exposure for documents
+          advanced: [{
+            exposureMode: 'continuous',
+            focusMode: 'continuous',
+            whiteBalanceMode: 'continuous'
+          }] as any
         }
       });
+      
+      // Try to enable torch/flash if available (helps with lighting)
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities?.() as any;
+      if (capabilities?.torch) {
+        try {
+          await track.applyConstraints({ advanced: [{ torch: true }] } as any);
+        } catch (e) {
+          // Torch not available, that's fine
+        }
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -70,6 +87,25 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
   }, []);
 
+  // Enhance image for better OCR (boost contrast and brightness)
+  const enhanceImageForOCR = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    
+    // Increase contrast and brightness for document scanning
+    const contrast = 1.3;  // 30% more contrast
+    const brightness = 20; // Slight brightness boost
+    
+    for (let i = 0; i < data.length; i += 4) {
+      // Apply contrast and brightness to RGB channels
+      data[i] = Math.min(255, Math.max(0, (data[i] - 128) * contrast + 128 + brightness));     // R
+      data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * contrast + 128 + brightness)); // G
+      data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * contrast + 128 + brightness)); // B
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+  };
+
   // Capture image from camera
   const captureImage = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -83,14 +119,18 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      
+      // Enhance the image for better OCR
+      enhanceImageForOCR(ctx, canvas.width, canvas.height);
+      
+      const dataUrl = canvas.toDataURL('image/png'); // PNG for better quality
       setImageData(dataUrl);
       stopCamera();
       processImage(dataUrl);
     }
   }, [stopCamera]);
 
-  // Handle file upload
+  // Handle file upload - also enhance for OCR
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -98,9 +138,31 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      setImageData(dataUrl);
-      stopCamera();
-      processImage(dataUrl);
+      
+      // Load image and enhance it
+      const img = new Image();
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            enhanceImageForOCR(ctx, canvas.width, canvas.height);
+            const enhancedDataUrl = canvas.toDataURL('image/png');
+            setImageData(enhancedDataUrl);
+            stopCamera();
+            processImage(enhancedDataUrl);
+            return;
+          }
+        }
+        // Fallback if canvas not available
+        setImageData(dataUrl);
+        stopCamera();
+        processImage(dataUrl);
+      };
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
   };
@@ -132,12 +194,58 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     // === NAME ===
     // Look for "Name" label followed by name(s)
     // Format: "Name    Bruce Pappy    Donna Pappy" - take first name only
-    const nameMatch = normalized.match(/Name\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
-    if (nameMatch) {
+    // OCR might read it differently, so try multiple patterns
+    
+    // Pattern 1: "Name" followed by capitalized words
+    let nameMatch = normalized.match(/Name\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
+    
+    // Pattern 2: "Name" followed by any text before common fields
+    if (!nameMatch) {
+      nameMatch = normalized.match(/Name\s+([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Address|Home|Work|Cell|Dealer|\d|$))/i);
+    }
+    
+    // Pattern 3: Look for line starting right after "Name" label
+    if (!nameMatch) {
+      const lines = normalized.split('\n');
+      for (const line of lines) {
+        if (line.match(/^Name\s/i)) {
+          const afterName = line.replace(/^Name\s+/i, '').trim();
+          const words = afterName.split(/\s+/).filter(w => /^[A-Za-z]+$/.test(w));
+          if (words.length >= 2) {
+            nameMatch = [null, words.slice(0, 4).join(' ')]; // Take up to 4 words
+            break;
+          }
+        }
+      }
+    }
+    
+    if (nameMatch && nameMatch[1]) {
       // Got something like "Bruce Pappy Donna Pappy" - take first two words (first + last)
-      const words = nameMatch[1].trim().split(/\s+/);
+      const words = nameMatch[1].trim().split(/\s+/).filter(w => /^[A-Za-z\-\']+$/.test(w));
       if (words.length >= 2) {
-        result.customerName = `${words[0]} ${words[1]}`;
+        // Capitalize properly
+        const firstName = words[0].charAt(0).toUpperCase() + words[0].slice(1).toLowerCase();
+        const lastName = words[1].charAt(0).toUpperCase() + words[1].slice(1).toLowerCase();
+        result.customerName = `${firstName} ${lastName}`;
+      } else if (words.length === 1) {
+        result.customerName = words[0].charAt(0).toUpperCase() + words[0].slice(1).toLowerCase();
+      }
+    }
+    
+    // Fallback: Look for capitalized name pattern in first 10 lines (not near Ocala header)
+    if (!result.customerName) {
+      const lines = normalized.split('\n');
+      for (let i = 3; i < Math.min(lines.length, 10); i++) { // Skip first 3 lines (header)
+        const line = lines[i].trim();
+        if (line.match(/Ocala|Plant|Street|Phone|Fax|Service|Department/i)) continue;
+        if (/^\d/.test(line)) continue; // Skip lines starting with numbers
+        
+        // Look for "Firstname Lastname" pattern
+        const words = line.split(/\s+/).filter(w => /^[A-Z][a-z]+$/.test(w));
+        if (words.length >= 2 && words.length <= 4) {
+          result.customerName = `${words[0]} ${words[1]}`;
+          break;
+        }
       }
     }
     
