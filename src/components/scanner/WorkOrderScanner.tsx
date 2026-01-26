@@ -548,6 +548,9 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
               onLoadedMetadata={() => videoRef.current?.play()}
             />
             
+            {/* Scan guidance tip */}
+            {showScanTip && <ScanGuidanceTip onDismiss={dismissScanTip} />}
+            
             {/* Overlay guide */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="border-2 border-white/50 rounded-lg w-[90%] h-[70%] flex items-center justify-center">
