@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapPin, Phone, MessageSquare, ChevronLeft, Play, Navigation } from 'lucide-react';
+import { MapPin, Phone, MessageSquare, ChevronLeft, Play, Navigation, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { PropertyDetailSkeleton } from '../../components/ui/Skeleton';
@@ -20,6 +20,35 @@ export function PropertyDetail() {
   const [property, setProperty] = useState<PropertyWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!property) return;
+    
+    setDeleting(true);
+    try {
+      // Delete phases first (foreign key constraint)
+      await supabase.from('phases').delete().eq('property_id', property.id);
+      
+      // Delete property
+      const { error: deleteError } = await supabase
+        .from('properties')
+        .delete()
+        .eq('id', property.id);
+      
+      if (deleteError) throw deleteError;
+      
+      // Navigate back to list
+      navigate('/properties', { replace: true });
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError('Failed to delete property');
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     async function fetchProperty() {
@@ -133,13 +162,22 @@ export function PropertyDetail() {
     <div className="pb-24">
       {/* Header */}
       <div className="bg-white border-b px-4 py-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1 text-gray-600 mb-4"
-        >
-          <ChevronLeft className="w-5 h-5" />
-          Back
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-1 text-gray-600"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            Back
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="Delete property"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
 
         <h1 className="text-2xl font-bold text-gray-900">
           {property.customer.firstName} {property.customer.lastName}
@@ -249,6 +287,37 @@ export function PropertyDetail() {
           </dl>
         </Card>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Property?</h3>
+            <p className="text-gray-600 mb-6">
+              This will permanently delete {property.customer.firstName} {property.customer.lastName}'s 
+              property at {property.street}. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                fullWidth
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                fullWidth
+                onClick={handleDelete}
+                loading={deleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
