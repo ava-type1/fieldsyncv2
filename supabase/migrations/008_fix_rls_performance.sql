@@ -2,13 +2,8 @@
 -- Wrap auth.uid() and current_setting() in (select ...) to avoid re-evaluation per row
 -- See: https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select
 
--- Drop and recreate affected policies on phases table
+-- Drop old phases policies (will be consolidated at the bottom)
 DROP POLICY IF EXISTS "Assigned update phases" ON phases;
-CREATE POLICY "Assigned update phases" ON phases
-  FOR UPDATE USING (
-    assigned_org_id = get_user_org_id()
-    OR assigned_user_id = (select auth.uid())
-  );
 
 -- Fix users table policies
 DROP POLICY IF EXISTS "Users read own profile" ON users;
