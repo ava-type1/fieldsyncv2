@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Phone, ChevronRight } from 'lucide-react';
+import { MapPin, Phone, ChevronRight, Plus, ScanLine } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 import { PropertyCardSkeleton } from '../../components/ui/Skeleton';
 import { useAuthStore } from '../../stores/authStore';
 import { supabase } from '../../lib/supabase';
@@ -115,7 +116,11 @@ export function PropertyList() {
         <div className="text-center">
           <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900">No properties yet</h3>
-          <p className="mt-1 text-gray-500">Properties assigned to you will appear here.</p>
+          <p className="mt-1 text-gray-500 mb-6">Start by scanning a work order or adding manually.</p>
+          <Button onClick={() => navigate('/quick-start')} className="gap-2">
+            <ScanLine className="w-5 h-5" />
+            Scan Work Order
+          </Button>
         </div>
       </div>
     );
@@ -123,6 +128,15 @@ export function PropertyList() {
 
   return (
     <div className="p-4 space-y-4">
+      {/* Add New Button */}
+      <button
+        onClick={() => navigate('/quick-start')}
+        className="w-full flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-primary-500 hover:text-primary-600 transition-colors"
+      >
+        <Plus className="w-5 h-5" />
+        <span className="font-medium">Add New Property</span>
+      </button>
+
       {properties.map((property) => (
         <Card
           key={property.id}
