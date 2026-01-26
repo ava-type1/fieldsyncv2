@@ -31,7 +31,10 @@ export function QuickStart() {
   const [state, setState] = useState('FL');
   const [zip, setZip] = useState('');
   const [phone, setPhone] = useState('');
+  const [workPhone, setWorkPhone] = useState('');
   const [poNumber, setPoNumber] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
+  const [salesperson, setSalesperson] = useState('');
 
   const handleScanComplete = (data: ScannedWorkOrder) => {
     setScannedData(data);
@@ -42,7 +45,10 @@ export function QuickStart() {
     setState(data.state || 'FL');
     setZip(data.zip || '');
     setPhone(data.phone || '');
+    setWorkPhone(data.workPhone || '');
     setPoNumber(data.poNumber || '');
+    setLotNumber(data.lotNumber || '');
+    setSalesperson(data.salesperson || '');
     setShowScanner(false);
   };
 
@@ -51,8 +57,8 @@ export function QuickStart() {
     
     setCreating(true);
     try {
-      // Split customer name
-      const nameParts = customerName.split(/[\s\/]+/);
+      // Split customer name - handle hyphenated names like "Jessica Noel-Medeiros"
+      const nameParts = customerName.trim().split(/\s+/);
       const firstName = nameParts[0] || '';
       const lastName = nameParts.slice(1).join(' ') || '';
 
@@ -74,11 +80,18 @@ export function QuickStart() {
           last_name: lastName,
           phone: phone,
           preferred_contact: 'phone',
+          notes: workPhone ? `Work: ${workPhone}` : undefined,
         })
         .select()
         .single();
 
       if (customerError) throw customerError;
+
+      // Build notes for property
+      const propertyNotes = [
+        lotNumber && `Lot #: ${lotNumber}`,
+        salesperson && `Salesperson: ${salesperson}`,
+      ].filter(Boolean).join('\n');
 
       // Create property
       const { data: property, error: propertyError } = await supabase
@@ -101,6 +114,11 @@ export function QuickStart() {
       if (propertyError) throw propertyError;
 
       // Create phases
+      const phaseNotes = [
+        poNumber && `P.O.#: ${poNumber}`,
+        propertyNotes,
+      ].filter(Boolean).join('\n');
+
       const phases = jobType === 'walkthrough' 
         ? [
             { type: 'Initial Walk-Through', category: 'service', sort_order: 1, status: 'in_progress' },
@@ -115,7 +133,7 @@ export function QuickStart() {
         .insert(phases.map(p => ({
           ...p,
           property_id: property.id,
-          notes: poNumber ? `P.O.#: ${poNumber}` : null,
+          notes: phaseNotes || null,
         })));
 
       // Navigate to the appropriate form
@@ -164,9 +182,9 @@ export function QuickStart() {
                     <ScanLine className="w-8 h-8" />
                   </div>
                   <div className="flex-1">
-                    <h2 className="text-lg font-semibold">Scan Work Order</h2>
+                    <h2 className="text-lg font-semibold">Scan Service Form</h2>
                     <p className="text-white/80 text-sm">
-                      Snap a photo of Matt's work order
+                      Snap a photo of Matt's paperwork
                     </p>
                   </div>
                   <ChevronRight className="w-6 h-6 text-white/60" />
@@ -240,17 +258,42 @@ export function QuickStart() {
                   onChange={(e) => setZip(e.target.value)}
                 />
               </div>
-              <Input
-                label="Phone"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-              <Input
-                label="P.O. #"
-                value={poNumber}
-                onChange={(e) => setPoNumber(e.target.value)}
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Home Phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <Input
+                  label="Work Phone"
+                  type="tel"
+                  value={workPhone}
+                  onChange={(e) => setWorkPhone(e.target.value)}
+                />
+              </div>
+              
+              <div className="border-t pt-3 mt-3">
+                <p className="text-xs text-gray-500 mb-2">Optional Info</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    label="Lot #"
+                    value={lotNumber}
+                    onChange={(e) => setLotNumber(e.target.value)}
+                  />
+                  <Input
+                    label="Salesperson"
+                    value={salesperson}
+                    onChange={(e) => setSalesperson(e.target.value)}
+                  />
+                </div>
+                <Input
+                  label="P.O. #"
+                  value={poNumber}
+                  onChange={(e) => setPoNumber(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
             </div>
 
             <div className="mt-6 space-y-2">

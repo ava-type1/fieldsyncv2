@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { createWorker, Worker } from 'tesseract.js';
-import { Camera, X, Loader2, Check, RotateCcw, Zap } from 'lucide-react';
+import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export interface ScannedWorkOrder {
@@ -11,10 +11,14 @@ export interface ScannedWorkOrder {
   state?: string;
   zip?: string;
   phone?: string;
+  workPhone?: string;
   poNumber?: string;
   claimNumber?: string;
   model?: string;
   dealer?: string;
+  lotNumber?: string;
+  salesperson?: string;
+  setupBy?: string;
   rawText: string;
 }
 
@@ -32,6 +36,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
@@ -52,7 +57,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       }
     } catch (err) {
       console.error('Camera error:', err);
-      setError('Could not access camera. Please check permissions.');
+      setError('Could not access camera. Please check permissions or use file upload.');
     }
   }, []);
 
@@ -64,7 +69,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
   }, []);
 
-  // Capture image
+  // Capture image from camera
   const captureImage = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
     
@@ -84,15 +89,52 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
   }, [stopCamera]);
 
-  // Parse extracted text to find fields
+  // Handle file upload
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setImageData(dataUrl);
+      stopCamera();
+      processImage(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Parse extracted text to find fields - optimized for Service Department forms
   const parseWorkOrderText = (text: string): ScannedWorkOrder => {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const result: ScannedWorkOrder = { rawText: text };
     
-    // Serial Number patterns: N1-17670AB, N1-16279AB, etc.
-    const serialMatch = text.match(/(?:Serial\s*(?:#|No\.?)?:?\s*)?([A-Z]\d-\d{5}[A-Z]{0,2})/i);
+    // Normalize text for easier matching
+    const normalizedText = text.replace(/\s+/g, ' ');
+    
+    // Serial Number patterns: N1-17552, N1-17670AB, etc.
+    const serialMatch = text.match(/(?:Serial\s*(?:#|No\.?)?:?\s*)?([A-Z]\d-\d{4,5}[A-Z]{0,2})/i);
     if (serialMatch) {
       result.serialNumber = serialMatch[1].toUpperCase();
+    }
+    
+    // Lot Number: "Lot #: 18-Yulee" or "LOT# 18-Yulee" or just pattern matching
+    const lotMatch = text.match(/(?:Lot\s*(?:#|No\.?)?:?\s*)([A-Z0-9\-]+)/i) ||
+                     text.match(/(\d{1,3}[\-\s]?[A-Za-z]+)(?=\s|$)/); // Pattern like "18-Yulee"
+    if (lotMatch) {
+      result.lotNumber = lotMatch[1].trim();
+    }
+    
+    // Salesperson
+    const salespersonMatch = text.match(/(?:Salesperson|Sales\s*Rep|Sold\s*By)[:\s]*([A-Za-z]+)/i);
+    if (salespersonMatch) {
+      result.salesperson = salespersonMatch[1].trim();
+    }
+    
+    // Setup By / Set Up
+    const setupMatch = text.match(/(?:Set\s*Up\s*By|Setup)[:\s]*([A-Za-z\s]+?)(?=\n|$)/i);
+    if (setupMatch) {
+      result.setupBy = setupMatch[1].trim();
     }
     
     // Claim Number: 5 digits
@@ -113,40 +155,94 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       result.model = modelMatch[1];
     }
     
-    // Phone numbers: xxx-xxx-xxxx or xxx/xxx-xxxx
-    const phoneMatch = text.match(/(?:Phone:?\s*)?(\d{3}[\/\-]\d{3}[\/\-]\d{4})/);
-    if (phoneMatch) {
-      result.phone = phoneMatch[1].replace(/\//g, '-');
+    // Phone numbers - try to find Home Phone and Work Phone separately
+    // Look for labeled phone numbers first
+    const homePhoneMatch = text.match(/(?:Home\s*(?:Phone)?|H\/P)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
+    const workPhoneMatch = text.match(/(?:Work\s*(?:Phone)?|W\/P|Bus(?:iness)?)[:\s]*[(\s]*(\d{3})[)\s\-\/]*(\d{3})[\s\-\/]*(\d{4})/i);
+    
+    if (homePhoneMatch) {
+      result.phone = `${homePhoneMatch[1]}-${homePhoneMatch[2]}-${homePhoneMatch[3]}`;
+    }
+    if (workPhoneMatch) {
+      result.workPhone = `${workPhoneMatch[1]}-${workPhoneMatch[2]}-${workPhoneMatch[3]}`;
     }
     
-    // Look for owner/customer name - usually after "Owner" or near address
-    // Common pattern: NAME in caps followed by address
-    const ownerMatch = text.match(/(?:Owner|Customer)\s*:?\s*([A-Z][A-Z\s\/]+?)(?=\n|\d)/i);
-    if (ownerMatch) {
-      result.customerName = ownerMatch[1].trim();
+    // If no labeled phones found, try to find any phone numbers
+    if (!result.phone) {
+      const phoneMatches = text.match(/[(\s]*(\d{3})[)\s\-\/]+(\d{3})[\s\-\/]+(\d{4})/g);
+      if (phoneMatches && phoneMatches.length > 0) {
+        // First phone found that's not in the header (skip 352 area code for Ocala plant)
+        for (const match of phoneMatches) {
+          const cleaned = match.replace(/[^\d]/g, '');
+          if (!cleaned.startsWith('352')) { // Skip Ocala plant numbers
+            result.phone = `${cleaned.slice(0,3)}-${cleaned.slice(3,6)}-${cleaned.slice(6)}`;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Customer Name - look for patterns common in service forms
+    // Try "Name:" or "Customer:" label first
+    let nameMatch = text.match(/(?:Name|Customer|Owner)[:\s]+([A-Za-z][A-Za-z\-\'\s]+?)(?=\n|\d|$)/i);
+    
+    if (!nameMatch) {
+      // Look for a name pattern near the top (after SERVICE DEPARTMENT header)
+      // Names are often in format: "FirstName LastName" or "FirstName MiddleInitial LastName"
+      // Skip lines that look like addresses or the plant header
+      for (const line of lines.slice(0, 15)) {
+        // Skip obvious non-name lines
+        if (line.match(/SERVICE|DEPARTMENT|COPY|PLANT|OCALA|SW|STREET|FAX|\d{5}|^\d+\s/i)) continue;
+        
+        // Look for name pattern: two or more capitalized words, possibly with hyphens
+        const potentialName = line.match(/^([A-Z][a-z]+(?:[\-\'][A-Z]?[a-z]+)?(?:\s+[A-Z][a-z]+(?:[\-\'][A-Z]?[a-z]+)?)+)$/);
+        if (potentialName) {
+          result.customerName = potentialName[1];
+          break;
+        }
+      }
     } else {
-      // Try to find a name in ALL CAPS that looks like a person name
-      const capsNameMatch = text.match(/\n([A-Z][A-Z]+(?:\s*\/\s*[A-Z]+)?\s+[A-Z][A-Z]+)\n/);
-      if (capsNameMatch) {
+      result.customerName = nameMatch[1].trim();
+    }
+    
+    // If still no name, try a more aggressive pattern
+    if (!result.customerName) {
+      const capsNameMatch = text.match(/([A-Z][a-z]+(?:[\-\s][A-Z][a-z]+)+)/);
+      if (capsNameMatch && !capsNameMatch[1].match(/Service|Department|Ocala|Florida|Street/i)) {
         result.customerName = capsNameMatch[1];
       }
     }
     
-    // Address pattern - number followed by street
-    const addressMatch = text.match(/(\d+\s+(?:NW|NE|SW|SE|N|S|E|W)?\s*[A-Z0-9\s]+(?:ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|CT|COURT|WAY|BLVD|HWY|CR|PKWY))/i);
-    if (addressMatch) {
-      result.address = addressMatch[1].trim();
+    // Address - look for street number followed by street name
+    // Skip the plant address (3741 SW 7th Street, Ocala)
+    const addressMatches = text.match(/(\d+\s+(?!SW\s*7th)(?:NW|NE|SW|SE|N|S|E|W\.?\s+)?[A-Za-z0-9\s]+(?:ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|CT|COURT|WAY|BLVD|HWY|CR|PKWY|CIR|CIRCLE)\.?)/gi);
+    
+    if (addressMatches) {
+      // Find the address that's NOT the Ocala plant
+      for (const addr of addressMatches) {
+        if (!addr.match(/3741|SW\s*7th|Ocala/i)) {
+          result.address = addr.trim().replace(/\s+/g, ' ');
+          break;
+        }
+      }
     }
     
     // City, State, Zip - FL ZIP codes start with 3
-    const cityStateZipMatch = text.match(/([A-Z][A-Z]+)\s+(FL|FLORIDA)\s+(\d{5})/i);
-    if (cityStateZipMatch) {
-      result.city = cityStateZipMatch[1];
-      result.state = 'FL';
-      result.zip = cityStateZipMatch[3];
+    // Skip Ocala (plant location)
+    const cityStateZipMatches = text.match(/([A-Za-z\s]+)[,\s]+(FL|Florida)\s+(\d{5})/gi);
+    if (cityStateZipMatches) {
+      for (const match of cityStateZipMatches) {
+        const parsed = match.match(/([A-Za-z\s]+)[,\s]+(FL|Florida)\s+(\d{5})/i);
+        if (parsed && !parsed[1].match(/Ocala/i)) {
+          result.city = parsed[1].trim();
+          result.state = 'FL';
+          result.zip = parsed[3];
+          break;
+        }
+      }
     }
     
-    // Dealer name - look for common dealer patterns
+    // Dealer name
     const dealerMatch = text.match(/(?:Dealer|Prestige|Home\s*Center)[:\s]*([^\n]+)/i);
     if (dealerMatch) {
       result.dealer = dealerMatch[1].trim();
@@ -224,7 +320,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       {/* Header */}
       <div className="bg-black/80 px-4 py-3 flex items-center justify-between">
         <h2 className="text-white font-medium">
-          {step === 'capture' && 'Scan Work Order'}
+          {step === 'capture' && 'Scan Service Form'}
           {step === 'processing' && 'Processing...'}
           {step === 'review' && 'Review Extracted Data'}
         </h2>
@@ -249,7 +345,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="border-2 border-white/50 rounded-lg w-[90%] h-[70%] flex items-center justify-center">
                 <p className="text-white/70 text-sm bg-black/50 px-3 py-1 rounded">
-                  Align work order within frame
+                  Align service form within frame
                 </p>
               </div>
             </div>
@@ -261,11 +357,28 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
             )}
           </div>
           
-          <div className="bg-black/80 p-4 pb-safe">
+          <div className="bg-black/80 p-4 pb-safe space-y-2">
             <Button onClick={captureImage} fullWidth size="lg">
               <Camera className="w-5 h-5 mr-2" />
               Capture
             </Button>
+            
+            <Button 
+              variant="secondary" 
+              onClick={() => fileInputRef.current?.click()} 
+              fullWidth
+            >
+              <Upload className="w-5 h-5 mr-2" />
+              Upload from Gallery
+            </Button>
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
           </div>
         </>
       )}
@@ -282,7 +395,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
           )}
           
           <Loader2 className="w-12 h-12 text-primary-500 animate-spin mb-4" />
-          <p className="text-white text-lg mb-2">Reading work order...</p>
+          <p className="text-white text-lg mb-2">Reading form...</p>
           
           <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
             <div 
@@ -306,12 +419,6 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
               
               {/* Extracted fields */}
               <div className="space-y-3">
-                {scannedData.serialNumber && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Serial #</span>
-                    <span className="text-white font-mono">{scannedData.serialNumber}</span>
-                  </div>
-                )}
                 {scannedData.customerName && (
                   <div className="flex justify-between">
                     <span className="text-gray-400">Customer</span>
@@ -334,8 +441,41 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
                 )}
                 {scannedData.phone && (
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Phone</span>
+                    <span className="text-gray-400">Home Phone</span>
                     <span className="text-white">{scannedData.phone}</span>
+                  </div>
+                )}
+                {scannedData.workPhone && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Work Phone</span>
+                    <span className="text-white">{scannedData.workPhone}</span>
+                  </div>
+                )}
+                
+                <div className="border-t border-gray-700 my-2" />
+                
+                {scannedData.serialNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Serial #</span>
+                    <span className="text-white font-mono">{scannedData.serialNumber}</span>
+                  </div>
+                )}
+                {scannedData.lotNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Lot #</span>
+                    <span className="text-white">{scannedData.lotNumber}</span>
+                  </div>
+                )}
+                {scannedData.salesperson && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Salesperson</span>
+                    <span className="text-white">{scannedData.salesperson}</span>
+                  </div>
+                )}
+                {scannedData.setupBy && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Setup By</span>
+                    <span className="text-white">{scannedData.setupBy}</span>
                   </div>
                 )}
                 {scannedData.poNumber && (
