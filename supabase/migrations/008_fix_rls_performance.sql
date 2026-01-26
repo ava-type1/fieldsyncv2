@@ -185,3 +185,21 @@ CREATE POLICY "Users can view own org subscription"
       SELECT organization_id FROM users WHERE id = (select auth.uid())
     )
   );
+
+-- Fix organizations "org_insert" policy
+DROP POLICY IF EXISTS "org_insert" ON organizations;
+CREATE POLICY "org_insert" ON organizations
+  FOR INSERT WITH CHECK ((select auth.uid()) IS NOT NULL);
+
+-- Fix users "user_select" policy
+DROP POLICY IF EXISTS "user_select" ON users;
+CREATE POLICY "user_select" ON users
+  FOR SELECT USING (id = (select auth.uid()));
+
+-- Fix contractor_profiles - consolidate multiple permissive policies into one
+DROP POLICY IF EXISTS "Manage own contractor profile" ON contractor_profiles;
+DROP POLICY IF EXISTS "Read contractor profiles" ON contractor_profiles;
+CREATE POLICY "Read contractor profiles" ON contractor_profiles
+  FOR SELECT USING (true);  -- Anyone can read contractor profiles (directory)
+CREATE POLICY "Manage own contractor profile" ON contractor_profiles
+  FOR ALL USING (organization_id = get_user_org_id());
