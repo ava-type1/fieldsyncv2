@@ -192,128 +192,158 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     }
     
     // === NAME ===
-    // Look for "Name" label followed by name(s)
-    // Format: "Name    Bruce Pappy    Donna Pappy" - take first name only
-    // OCR might read it differently, so try multiple patterns
+    // Form labels to reject (these are NOT names)
+    const labelWords = /^(name|date|address|city|state|zip|phone|home|work|cell|dealer|lot|serial|model|sales|service|walk|thru|buyer|yes|no|description|acceptance|exterior|interior|signature|comments|callers)$/i;
     
-    // Pattern 1: "Name" followed by capitalized words
-    let nameMatch = normalized.match(/Name\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
+    // Common first names to help identify real names
+    const commonFirstNames = /^(james|john|robert|michael|david|william|richard|joseph|thomas|charles|christopher|daniel|matthew|anthony|mark|donald|steven|paul|andrew|joshua|kenneth|kevin|brian|george|timothy|ronald|edward|jason|jeffrey|ryan|jacob|gary|nicholas|eric|jonathan|stephen|larry|justin|scott|brandon|benjamin|samuel|raymond|gregory|frank|alexander|patrick|jack|dennis|jerry|tyler|aaron|jose|adam|nathan|henry|douglas|zachary|peter|kyle|bruce|terry|sean|christian|austin|arthur|lawrence|jesse|dylan|bryan|joe|jordan|billy|albert|willie|gerald|logan|wayne|elijah|randy|roy|vincent|ralph|eugene|russell|bobby|mason|philip|louis|harry|carl|ethan|keith|roger|gerald|barry|johnny|walter|noah|alan|juan|wayne|elijah|randy|roy|vincent|ralph|eugene|russell|bobby|mason|philip|louis|harry|carl|donna|velvet|mary|patricia|jennifer|linda|barbara|elizabeth|susan|jessica|sarah|karen|lisa|nancy|betty|margaret|sandra|ashley|kimberly|emily|donna|michelle|dorothy|carol|amanda|melissa|deborah|stephanie|rebecca|sharon|laura|cynthia|kathleen|amy|angela|shirley|anna|brenda|pamela|emma|nicole|helen|samantha|katherine|christine|debra|rachel|carolyn|janet|catherine|maria|heather|diane|ruth|julie|olivia|joyce|virginia|victoria|kelly|lauren|christina|joan|evelyn|judith|megan|andrea|cheryl|hannah|jacqueline|martha|gloria|teresa|ann|sara|madison|frances|kathryn|janice|jean|abigail|alice|judy|sophia|grace|denise|amber|doris|marilyn|danielle|beverly|isabella|theresa|diana|natalie|brittany|charlotte|marie|kayla|alexis|lori)$/i;
     
-    // Pattern 2: "Name" followed by any text before common fields
-    if (!nameMatch) {
-      nameMatch = normalized.match(/Name\s+([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Address|Home|Work|Cell|Dealer|\d|$))/i);
-    }
+    // Look for name patterns - "Firstname Lastname" or "Firstname Middlename Lastname" or "Firstname Lastname Jr."
+    // Search the whole text for valid name patterns
+    const namePatterns = normalized.match(/([A-Z][a-z]+)\s+([A-Z][a-z]+)(?:\s+(Jr\.?|Sr\.?|II|III|IV))?/g) || [];
     
-    // Pattern 3: Look for line starting right after "Name" label
-    if (!nameMatch) {
-      const lines = normalized.split('\n');
-      for (const line of lines) {
-        if (line.match(/^Name\s/i)) {
-          const afterName = line.replace(/^Name\s+/i, '').trim();
-          const words = afterName.split(/\s+/).filter(w => /^[A-Za-z]+$/.test(w));
-          if (words.length >= 2) {
-            nameMatch = [null, words.slice(0, 4).join(' ')]; // Take up to 4 words
-            break;
-          }
+    for (const potentialName of namePatterns) {
+      const parts = potentialName.trim().split(/\s+/);
+      const firstName = parts[0];
+      const lastName = parts[1];
+      
+      // Skip if either part is a label word
+      if (labelWords.test(firstName) || labelWords.test(lastName)) continue;
+      
+      // Skip if it looks like a place (Florida, Ocala, etc.)
+      if (potentialName.match(/florida|ocala|trenton|chiefland|gainesville|jacksonville|tampa|orlando|plant|street|lane|drive|road|avenue/i)) continue;
+      
+      // Bonus: if first name is a common first name, we're confident
+      if (commonFirstNames.test(firstName)) {
+        // Include Jr./Sr./III if present
+        if (parts.length > 2 && parts[2].match(/^(Jr\.?|Sr\.?|II|III|IV)$/i)) {
+          result.customerName = `${firstName} ${lastName} ${parts[2]}`;
+        } else {
+          result.customerName = `${firstName} ${lastName}`;
         }
+        break;
       }
     }
     
-    if (nameMatch && nameMatch[1]) {
-      // Got something like "Bruce Pappy Donna Pappy" - take first two words (first + last)
-      const words = nameMatch[1].trim().split(/\s+/).filter(w => /^[A-Za-z\-\']+$/.test(w));
-      if (words.length >= 2) {
-        // Capitalize properly
-        const firstName = words[0].charAt(0).toUpperCase() + words[0].slice(1).toLowerCase();
-        const lastName = words[1].charAt(0).toUpperCase() + words[1].slice(1).toLowerCase();
-        result.customerName = `${firstName} ${lastName}`;
-      } else if (words.length === 1) {
-        result.customerName = words[0].charAt(0).toUpperCase() + words[0].slice(1).toLowerCase();
-      }
-    }
-    
-    // Fallback: Look for capitalized name pattern in first 10 lines (not near Ocala header)
+    // Fallback: Look for any two capitalized words that aren't labels
     if (!result.customerName) {
-      const lines = normalized.split('\n');
-      for (let i = 3; i < Math.min(lines.length, 10); i++) { // Skip first 3 lines (header)
-        const line = lines[i].trim();
-        if (line.match(/Ocala|Plant|Street|Phone|Fax|Service|Department/i)) continue;
-        if (/^\d/.test(line)) continue; // Skip lines starting with numbers
-        
-        // Look for "Firstname Lastname" pattern
-        const words = line.split(/\s+/).filter(w => /^[A-Z][a-z]+$/.test(w));
-        if (words.length >= 2 && words.length <= 4) {
-          result.customerName = `${words[0]} ${words[1]}`;
+      for (const potentialName of namePatterns) {
+        const parts = potentialName.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const firstName = parts[0];
+          const lastName = parts[1];
+          
+          if (labelWords.test(firstName) || labelWords.test(lastName)) continue;
+          if (potentialName.match(/florida|ocala|street|lane|drive|road|service|department/i)) continue;
+          
+          result.customerName = `${firstName} ${lastName}`;
           break;
         }
       }
     }
     
     // === ADDRESS ===
-    // Look for "Address" label followed by street address
-    // Format: "Address    15510 cr 121"
-    const addressMatch = normalized.match(/Address\s+(\d+\s+[A-Za-z0-9\s]+?)(?=\s*(?:City|State|Zip|\n|$))/i);
-    if (addressMatch) {
-      result.address = addressMatch[1].trim().replace(/\s+/g, ' ');
+    // Look for street address pattern: number + street name
+    // Examples: "7109 SE 77 Lane", "15510 CR 121", "123 Main Street"
+    const addressPatterns = normalized.match(/(\d{2,5}\s+(?:[NSEW]{1,2}\s+)?(?:\d+\s+)?[A-Za-z]+(?:\s+[A-Za-z]+)?(?:\s+(?:Lane|Ln|Street|St|Road|Rd|Drive|Dr|Avenue|Ave|Court|Ct|Circle|Cir|Way|Place|Pl|Boulevard|Blvd|Trail|Trl|Terrace|Ter|CR|SR|HWY))?)/gi) || [];
+    
+    for (const addr of addressPatterns) {
+      // Skip Ocala plant address
+      if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
+      // Skip if it's just numbers
+      if (/^\d+$/.test(addr.trim())) continue;
+      
+      const cleanAddr = addr.trim().replace(/\s+/g, ' ');
+      if (cleanAddr.length >= 8) {
+        result.address = cleanAddr;
+        break;
+      }
     }
     
     // === CITY, STATE, ZIP ===
     // Format: "City    bryceville    State  fl    Zip    32009"
-    const cityMatch = normalized.match(/City\s+([A-Za-z][A-Za-z\s]*?)(?=\s+State)/i);
+    // Or might be: "Trenton FL 32693" or "Trenton, FL 32693"
+    
+    // Try labeled format first
+    let cityMatch = normalized.match(/City\s+([A-Za-z][A-Za-z\s]*?)(?=\s+(?:State|FL|Fl|fl))/i);
     if (cityMatch) {
       result.city = cityMatch[1].trim();
-      // Capitalize first letter
       result.city = result.city.charAt(0).toUpperCase() + result.city.slice(1).toLowerCase();
     }
     
-    const stateMatch = normalized.match(/State\s+([A-Za-z]{2})(?=\s+Zip)/i);
+    const stateMatch = normalized.match(/(?:State\s+)?([Ff][Ll])(?=\s+(?:Zip|\d{5}))/i);
     if (stateMatch) {
-      result.state = stateMatch[1].toUpperCase();
+      result.state = 'FL';
     }
     
-    const zipMatch = normalized.match(/Zip\s+(\d{5})/i);
-    if (zipMatch) {
+    let zipMatch = normalized.match(/(?:Zip\s+)?(\d{5})(?!\d)/i);
+    // Make sure it's not the Ocala ZIP (34474)
+    if (zipMatch && zipMatch[1] !== '34474') {
       result.zip = zipMatch[1];
     }
     
+    // Fallback: Look for "City, FL ZIP" or "City FL ZIP" pattern
+    if (!result.city) {
+      const cityStateZip = normalized.match(/([A-Z][a-z]+(?:ville|ton|land|burg|ford|field|wood|beach|springs|park)?)[,\s]+(?:FL|Fl|fl)[,\s]+(\d{5})/);
+      if (cityStateZip && cityStateZip[1].toLowerCase() !== 'ocala') {
+        result.city = cityStateZip[1];
+        result.state = 'FL';
+        result.zip = cityStateZip[2];
+      }
+    }
+    
+    // Another fallback: common Florida city names in text
+    const flCities = normalized.match(/(Trenton|Chiefland|Gainesville|Jacksonville|Ocala|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White)/i);
+    if (flCities && !result.city && flCities[1].toLowerCase() !== 'ocala') {
+      result.city = flCities[1].charAt(0).toUpperCase() + flCities[1].slice(1).toLowerCase();
+      result.state = 'FL';
+    }
+    
     // === PHONE NUMBERS ===
-    // Format: "Home Ph: 904-759-3894  Work Ph: 727-463-9890  Cell Ph:"
-    // Phone patterns: xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx xxx xxxx, etc.
+    // Format variations: 
+    //   "Ph: 352-284-2512 Work Ph: 352-810-6125 Cell Ph:"
+    //   "Home Ph: 904-759-3894  Work Ph: 727-463-9890  Cell Ph:"
+    // Phone patterns: xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx xxx xxxx, xxxxxxxxxx
     const phoneRegex = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/;
     
-    const homePhMatch = normalized.match(new RegExp(`Home\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
+    // Home/Primary phone - look for "Ph:" or "Home Ph:" 
+    const homePhMatch = normalized.match(new RegExp(`(?:Home\\s*)?Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (homePhMatch) {
       result.phone = `${homePhMatch[1]}-${homePhMatch[2]}-${homePhMatch[3]}`;
     }
     
+    // Work phone
     const workPhMatch = normalized.match(new RegExp(`Work\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (workPhMatch) {
       result.workPhone = `${workPhMatch[1]}-${workPhMatch[2]}-${workPhMatch[3]}`;
     }
     
+    // Cell phone
     const cellPhMatch = normalized.match(new RegExp(`Cell\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
     if (cellPhMatch) {
       result.cellPhone = `${cellPhMatch[1]}-${cellPhMatch[2]}-${cellPhMatch[3]}`;
     }
     
-    // Fallback: if no labeled phones found, find all phone numbers and skip Ocala plant numbers
-    if (!result.phone && !result.workPhone) {
-      const phonePattern = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/g;
-      const phones: string[] = [];
-      let match;
-      
-      while ((match = phonePattern.exec(normalized)) !== null) {
-        const num = `${match[1]}-${match[2]}-${match[3]}`;
-        // Skip plant numbers (352-732-xxxx, 352-854-xxxx)
-        if (!num.startsWith('352-732') && !num.startsWith('352-854')) {
-          phones.push(num);
+    // Fallback: find all phone numbers and assign in order, skipping plant numbers
+    const phonePattern = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/g;
+    const allPhones: string[] = [];
+    let phoneMatch;
+    
+    while ((phoneMatch = phonePattern.exec(normalized)) !== null) {
+      const num = `${phoneMatch[1]}-${phoneMatch[2]}-${phoneMatch[3]}`;
+      // Skip plant numbers (352-732-xxxx)
+      if (!num.startsWith('352-732')) {
+        // Avoid duplicates
+        if (!allPhones.includes(num)) {
+          allPhones.push(num);
         }
       }
-      
-      if (phones.length > 0) result.phone = phones[0];
-      if (phones.length > 1) result.workPhone = phones[1];
-      if (phones.length > 2) result.cellPhone = phones[2];
     }
+    
+    // Fill in any missing phones from the list
+    if (!result.phone && allPhones.length > 0) result.phone = allPhones[0];
+    if (!result.workPhone && allPhones.length > 1) result.workPhone = allPhones[1];
+    if (!result.cellPhone && allPhones.length > 2) result.cellPhone = allPhones[2];
     
     // === LOT / DEALER ===
     // Format: "Dealer    Lot 18-Yulee"
