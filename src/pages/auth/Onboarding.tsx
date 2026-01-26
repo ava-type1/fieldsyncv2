@@ -88,6 +88,20 @@ export function Onboarding() {
 
       if (userError) throw userError;
 
+      // Create organization membership (required for job creation)
+      const { error: memberError } = await supabase
+        .from('organization_members')
+        .upsert({
+          user_id: user.id,
+          organization_id: org.id,
+          role: 'owner',
+        });
+
+      if (memberError) {
+        console.error('Membership creation error:', memberError);
+        // Don't throw - membership might already exist or table might not exist
+      }
+
       // Update local state
       setUser({
         ...user,

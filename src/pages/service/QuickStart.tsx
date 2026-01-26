@@ -62,20 +62,37 @@ export function QuickStart() {
       const firstName = nameParts[0] || '';
       const lastName = nameParts.slice(1).join(' ') || '';
 
-      // Get user's organization
+      // Get user's organization - try organization_members first, fallback to users table
+      let organizationId: string | null = null;
+      
       const { data: membership } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', user.id)
         .single();
+      
+      if (membership) {
+        organizationId = membership.organization_id;
+      } else {
+        // Fallback: check users table directly
+        const { data: userData } = await supabase
+          .from('users')
+          .select('organization_id')
+          .eq('id', user.id)
+          .single();
+        
+        if (userData?.organization_id) {
+          organizationId = userData.organization_id;
+        }
+      }
 
-      if (!membership) throw new Error('No organization found');
+      if (!organizationId) throw new Error('No organization found. Please complete onboarding first.');
 
       // Create customer
       const { data: customer, error: customerError } = await supabase
         .from('customers')
         .insert({
-          organization_id: membership.organization_id,
+          organization_id: organizationId,
           first_name: firstName,
           last_name: lastName,
           phone: phone,
@@ -101,7 +118,7 @@ export function QuickStart() {
         .from('properties')
         .insert({
           customer_id: customer.id,
-          created_by_org_id: membership.organization_id,
+          created_by_org_id: organizationId,
           street: address,
           city: city,
           state: state,
