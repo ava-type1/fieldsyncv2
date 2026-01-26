@@ -110,6 +110,38 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     ctx.putImageData(imageData, 0, 0);
   };
 
+  // Calculate the visible crop region when using object-fit: cover
+  // This ensures we capture exactly what the user sees in the viewfinder
+  const calculateCoverCrop = (video: HTMLVideoElement) => {
+    // Get the actual video dimensions (full frame from camera)
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    
+    // Get the display dimensions (what the user sees)
+    const displayWidth = video.clientWidth;
+    const displayHeight = video.clientHeight;
+    
+    // Calculate aspect ratios
+    const videoAspect = videoWidth / videoHeight;
+    const displayAspect = displayWidth / displayHeight;
+    
+    let sx = 0, sy = 0, sw = videoWidth, sh = videoHeight;
+    
+    if (videoAspect > displayAspect) {
+      // Video is wider than display - crop horizontally
+      // Video height fills display, width is cropped
+      sw = videoHeight * displayAspect;
+      sx = (videoWidth - sw) / 2;
+    } else {
+      // Video is taller than display - crop vertically
+      // Video width fills display, height is cropped
+      sh = videoWidth / displayAspect;
+      sy = (videoHeight - sh) / 2;
+    }
+    
+    return { sx, sy, sw, sh };
+  };
+
   // Capture image from camera
   const captureImage = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -117,12 +149,18 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Calculate the visible region (what the user sees with object-fit: cover)
+    const { sx, sy, sw, sh } = calculateCoverCrop(video);
+    
+    // Set canvas to the cropped dimensions
+    canvas.width = sw;
+    canvas.height = sh;
     
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(video, 0, 0);
+      // Draw only the visible portion of the video
+      // drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh)
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
       
       // Enhance the image for better OCR
       enhanceImageForOCR(ctx, canvas.width, canvas.height);
