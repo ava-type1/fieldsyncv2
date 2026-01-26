@@ -147,7 +147,7 @@ export function MapView() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col">
+    <div className="h-[calc(100vh-10rem)] flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-white border-b px-4 py-3 flex items-center justify-between flex-shrink-0">
         <h1 className="text-xl font-bold text-gray-900">Map</h1>
@@ -187,7 +187,7 @@ export function MapView() {
               )}
             </div>
           ) : (
-            <div className="flex-1 relative">
+            <div className="flex-1 relative overflow-hidden">
               <MapContainer
                 center={mapCenter}
                 zoom={10}

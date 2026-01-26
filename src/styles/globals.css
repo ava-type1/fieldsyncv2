@@ -139,3 +139,25 @@
     @apply transition-all duration-200 hover:shadow-md hover:-translate-y-0.5;
   }
 }
+
+/* Leaflet map containment */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Keep map controls visible */
+.leaflet-control-container {
+  position: absolute;
+  z-index: 1000;
+}
+
+/* Ensure map doesn't overflow container */
+.leaflet-pane {
+  z-index: 400;
+}
