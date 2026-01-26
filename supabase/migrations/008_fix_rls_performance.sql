@@ -97,3 +97,40 @@ CREATE POLICY "Assigned update materials" ON materials_lists
          OR ph.assigned_user_id = (select auth.uid())
     )
   );
+
+-- Fix notification_preferences policies
+DROP POLICY IF EXISTS "Users can view preferences for their org's customers" ON notification_preferences;
+CREATE POLICY "Users can view preferences for their org's customers"
+  ON notification_preferences FOR SELECT
+  USING (
+    customer_id IN (
+      SELECT c.id FROM customers c
+      WHERE c.organization_id IN (
+        SELECT organization_id FROM users WHERE id = (select auth.uid())
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can update preferences for their org's customers" ON notification_preferences;
+CREATE POLICY "Users can update preferences for their org's customers"
+  ON notification_preferences FOR UPDATE
+  USING (
+    customer_id IN (
+      SELECT c.id FROM customers c
+      WHERE c.organization_id IN (
+        SELECT organization_id FROM users WHERE id = (select auth.uid())
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can insert preferences for their org's customers" ON notification_preferences;
+CREATE POLICY "Users can insert preferences for their org's customers"
+  ON notification_preferences FOR INSERT
+  WITH CHECK (
+    customer_id IN (
+      SELECT c.id FROM customers c
+      WHERE c.organization_id IN (
+        SELECT organization_id FROM users WHERE id = (select auth.uid())
+      )
+    )
+  );
