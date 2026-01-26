@@ -187,3 +187,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 Built for contractors who work where cell towers don't reach. 🏠📱
+
