@@ -13,6 +13,7 @@ import {
   Link2
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { useAuth } from '../../hooks/useAuth';
 import { Button } from '../../components/ui/Button';
 
 interface SettingsItemProps {
@@ -45,12 +46,13 @@ function SettingsItem({ icon, label, description, onClick, rightElement }: Setti
 
 export function Settings() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuthStore();
+  const { user } = useAuthStore();
+  const { logout } = useAuth();
   const [darkMode, setDarkMode] = useState(false);
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/login');
+    await logout();
+    // logout() already navigates to /login
   };
 
   return (
