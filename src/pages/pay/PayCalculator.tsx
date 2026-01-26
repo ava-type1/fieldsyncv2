@@ -21,10 +21,14 @@ const HOURLY_RATE = 40; // per hour for return work
 interface PayEntry {
   id: string;
   date: string;
+  dateEnd?: string; // For multi-day jobs
   type: 'walkthrough' | 'return' | 'windshield';
   milesOneWay: number;
+  trips: number; // Number of round trips
   hours?: number;
   customerName?: string;
+  poNumber?: string;
+  serialNumber?: string;
   address?: string;
   notes?: string;
 }
@@ -36,11 +40,15 @@ export function PayCalculator() {
   // Form state
   const [entryType, setEntryType] = useState<'walkthrough' | 'return' | 'windshield'>('walkthrough');
   const [milesOneWay, setMilesOneWay] = useState('');
+  const [trips, setTrips] = useState('1');
   const [hours, setHours] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [poNumber, setPoNumber] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dateEnd, setDateEnd] = useState('');
 
   // Load entries from localStorage
   useEffect(() => {
@@ -56,7 +64,8 @@ export function PayCalculator() {
   }, [entries]);
 
   const calculateEntry = (entry: PayEntry) => {
-    const mileageTotal = entry.milesOneWay * 2 * MILEAGE_RATE;
+    const totalMiles = entry.milesOneWay * 2 * entry.trips;
+    const mileageTotal = totalMiles * MILEAGE_RATE;
     let serviceTotal = 0;
     
     if (entry.type === 'walkthrough') {
@@ -66,6 +75,7 @@ export function PayCalculator() {
     }
     
     return {
+      miles: totalMiles,
       mileage: mileageTotal,
       service: serviceTotal,
       total: mileageTotal + serviceTotal,
@@ -78,10 +88,14 @@ export function PayCalculator() {
     const newEntry: PayEntry = {
       id: Date.now().toString(),
       date,
+      dateEnd: dateEnd || undefined,
       type: entryType,
       milesOneWay: parseFloat(milesOneWay) || 0,
+      trips: parseInt(trips) || 1,
       hours: entryType !== 'walkthrough' ? parseFloat(hours) || 0 : undefined,
       customerName,
+      poNumber,
+      serialNumber,
       address,
       notes,
     };
@@ -90,10 +104,14 @@ export function PayCalculator() {
     
     // Reset form
     setMilesOneWay('');
+    setTrips('1');
     setHours('');
     setCustomerName('');
+    setPoNumber('');
+    setSerialNumber('');
     setAddress('');
     setNotes('');
+    setDateEnd('');
     setShowAddForm(false);
   };
 
@@ -108,33 +126,55 @@ export function PayCalculator() {
         mileage: acc.mileage + calc.mileage,
         service: acc.service + calc.service,
         total: acc.total + calc.total,
-        miles: acc.miles + (entry.milesOneWay * 2),
+        miles: acc.miles + calc.miles,
         walkthroughs: acc.walkthroughs + (entry.type === 'walkthrough' ? 1 : 0),
-        returnHours: acc.returnHours + (entry.type === 'return' ? (entry.hours || 0) : 0),
+        returnHours: acc.returnHours + ((entry.type === 'return' || entry.type === 'windshield') ? (entry.hours || 0) : 0),
       };
     },
     { mileage: 0, service: 0, total: 0, miles: 0, walkthroughs: 0, returnHours: 0 }
   );
 
   const emailPaySheet = () => {
-    const subject = `Pay Sheet - ${new Date().toLocaleDateString()}`;
-    const body = `Pay Sheet Summary
+    const subject = `Invoice - Kameron Martin - ${new Date().toLocaleDateString()}`;
+    
+    // Generate invoice for each entry
+    const invoiceLines = entries.map(e => {
+      const calc = calculateEntry(e);
+      const dateRange = e.dateEnd ? `${e.date} - ${e.dateEnd}` : e.date;
+      return `
+INVOICE
+=======
+Date: ${dateRange}
+${e.poNumber ? `P.O.#: ${e.poNumber}` : ''}
+${e.customerName ? `Customer: ${e.customerName}` : ''}
+${e.serialNumber ? `Serial#: ${e.serialNumber}` : ''}
+
+Mileage: ${e.milesOneWay} mi × ${e.trips} trips × 2 = ${calc.miles} mi
+         ${calc.miles} × $${MILEAGE_RATE.toFixed(2)} = $${calc.mileage.toFixed(2)}
+${e.type === 'walkthrough' 
+  ? `Walk-through: $${WALKTHROUGH_RATE.toFixed(2)}`
+  : `Hours: ${e.hours || 0} × $${HOURLY_RATE} = $${calc.service.toFixed(2)}`}
+
+TOTAL: $${calc.total.toFixed(2)}
+`;
+    }).join('\n---\n');
+
+    const body = `From: Kameron Martin
+To: Nobility Homes
+    3741 SW 7th St
+    Ocala, FL 34474
+
+${invoiceLines}
+
+================
+GRAND TOTAL: $${totals.total.toFixed(2)}
 ================
 
-Date Range: ${entries.length > 0 ? entries[entries.length - 1].date : ''} to ${entries.length > 0 ? entries[0].date : ''}
+Mileage Summary: ${totals.miles.toFixed(0)} mi × $${MILEAGE_RATE} = $${totals.mileage.toFixed(2)}
+Walk-throughs: ${totals.walkthroughs} × $${WALKTHROUGH_RATE} = $${(totals.walkthroughs * WALKTHROUGH_RATE).toFixed(2)}
+Return Hours: ${totals.returnHours.toFixed(1)} hrs × $${HOURLY_RATE} = $${(totals.returnHours * HOURLY_RATE).toFixed(2)}
 
-TOTALS:
-- Walk-throughs: ${totals.walkthroughs} × $${WALKTHROUGH_RATE} = $${(totals.walkthroughs * WALKTHROUGH_RATE).toFixed(2)}
-- Return Hours: ${totals.returnHours.toFixed(1)} hrs × $${HOURLY_RATE}/hr = $${(totals.returnHours * HOURLY_RATE).toFixed(2)}
-- Mileage: ${totals.miles.toFixed(1)} mi × $${MILEAGE_RATE}/mi = $${totals.mileage.toFixed(2)}
-
-GRAND TOTAL: $${totals.total.toFixed(2)}
-
-DETAILS:
-${entries.map(e => {
-  const calc = calculateEntry(e);
-  return `${e.date} | ${e.type.toUpperCase()} | ${e.customerName || 'N/A'} | ${e.milesOneWay * 2} mi | $${calc.total.toFixed(2)}`;
-}).join('\n')}
+Please submit with receipts and signed work order.
 
 --
 Generated by FieldSync`;
@@ -210,52 +250,77 @@ Generated by FieldSync`;
             </div>
 
             <div className="space-y-3">
-              <Input
-                label="Date"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Start Date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+                <Input
+                  label="End Date (if multi-day)"
+                  type="date"
+                  value={dateEnd}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="P.O. #"
+                  placeholder="e.g., 9090"
+                  value={poNumber}
+                  onChange={(e) => setPoNumber(e.target.value)}
+                />
+                <Input
+                  label="Serial #"
+                  placeholder="e.g., N1-17679 AB"
+                  value={serialNumber}
+                  onChange={(e) => setSerialNumber(e.target.value)}
+                />
+              </div>
 
               <Input
-                label="Miles (one way)"
-                type="number"
-                placeholder="e.g., 45"
-                value={milesOneWay}
-                onChange={(e) => setMilesOneWay(e.target.value)}
+                label="Customer name"
+                placeholder="Steven Cover"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
               />
+
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Miles (one way)"
+                  type="number"
+                  placeholder="e.g., 59"
+                  value={milesOneWay}
+                  onChange={(e) => setMilesOneWay(e.target.value)}
+                />
+                <Input
+                  label="# of trips"
+                  type="number"
+                  placeholder="e.g., 4"
+                  value={trips}
+                  onChange={(e) => setTrips(e.target.value)}
+                />
+              </div>
 
               {entryType !== 'walkthrough' && (
                 <Input
                   label="Hours worked"
                   type="number"
                   step="0.5"
-                  placeholder="e.g., 2.5"
+                  placeholder="e.g., 16"
                   value={hours}
                   onChange={(e) => setHours(e.target.value)}
                 />
               )}
 
-              <Input
-                label="Customer name (optional)"
-                placeholder="John Smith"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-              />
-
-              <Input
-                label="Address (optional)"
-                placeholder="123 Main St, Ocala"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
-
               {/* Live calculation */}
               {milesOneWay && (
                 <div className="bg-gray-50 rounded-lg p-3 text-sm">
                   <div className="flex justify-between">
-                    <span>Mileage ({milesOneWay} × 2 × ${MILEAGE_RATE})</span>
-                    <span className="font-medium">${(parseFloat(milesOneWay) * 2 * MILEAGE_RATE).toFixed(2)}</span>
+                    <span>Mileage: {milesOneWay} × {trips || 1} × 2 = {(parseFloat(milesOneWay) || 0) * (parseInt(trips) || 1) * 2} mi</span>
+                    <span className="font-medium">${((parseFloat(milesOneWay) || 0) * (parseInt(trips) || 1) * 2 * MILEAGE_RATE).toFixed(2)}</span>
                   </div>
                   {entryType === 'walkthrough' && (
                     <div className="flex justify-between mt-1">
@@ -265,7 +330,7 @@ Generated by FieldSync`;
                   )}
                   {entryType !== 'walkthrough' && hours && (
                     <div className="flex justify-between mt-1">
-                      <span>Hourly ({hours} × ${HOURLY_RATE})</span>
+                      <span>Hours: {hours} × ${HOURLY_RATE}</span>
                       <span className="font-medium">${(parseFloat(hours) * HOURLY_RATE).toFixed(2)}</span>
                     </div>
                   )}
@@ -273,7 +338,7 @@ Generated by FieldSync`;
                     <span>Entry Total</span>
                     <span className="text-green-600">
                       ${(
-                        (parseFloat(milesOneWay) || 0) * 2 * MILEAGE_RATE +
+                        (parseFloat(milesOneWay) || 0) * (parseInt(trips) || 1) * 2 * MILEAGE_RATE +
                         (entryType === 'walkthrough' ? WALKTHROUGH_RATE : (parseFloat(hours) || 0) * HOURLY_RATE)
                       ).toFixed(2)}
                     </span>
@@ -294,6 +359,7 @@ Generated by FieldSync`;
       <div className="px-4 space-y-2">
         {entries.map((entry) => {
           const calc = calculateEntry(entry);
+          const dateDisplay = entry.dateEnd ? `${entry.date} - ${entry.dateEnd}` : entry.date;
           return (
             <Card key={entry.id} className="relative">
               <button
@@ -304,15 +370,24 @@ Generated by FieldSync`;
               </button>
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-xs text-gray-500">{entry.date}</p>
-                  <p className="font-medium text-gray-900 capitalize">{entry.type.replace('_', ' ')}</p>
-                  {entry.customerName && (
-                    <p className="text-sm text-gray-600">{entry.customerName}</p>
+                  <p className="text-xs text-gray-500">{dateDisplay}</p>
+                  <p className="font-medium text-gray-900">{entry.customerName || 'N/A'}</p>
+                  <p className="text-xs text-gray-500 capitalize">
+                    {entry.type.replace('_', ' ')}
+                    {entry.poNumber && ` • P.O.# ${entry.poNumber}`}
+                  </p>
+                  {entry.serialNumber && (
+                    <p className="text-xs text-gray-400">Serial# {entry.serialNumber}</p>
                   )}
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-green-600">${calc.total.toFixed(2)}</p>
-                  <p className="text-xs text-gray-500">{entry.milesOneWay * 2} mi</p>
+                  <p className="text-xs text-gray-500">
+                    {entry.milesOneWay} × {entry.trips} × 2 = {calc.miles} mi
+                  </p>
+                  {entry.hours && (
+                    <p className="text-xs text-gray-500">{entry.hours} hrs</p>
+                  )}
                 </div>
               </div>
             </Card>
