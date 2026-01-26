@@ -208,22 +208,30 @@ export function MapView() {
                     }}
                   >
                     <Popup>
-                      <div className="min-w-[200px]">
-                        <h3 className="font-semibold">
+                      <div className="min-w-[220px]">
+                        <h3 className="font-semibold text-base">
                           {property.customer?.firstName} {property.customer?.lastName}
                         </h3>
-                        <p className="text-sm text-gray-600">{property.street}</p>
-                        <p className="text-sm text-gray-600">{property.city}, {property.state}</p>
-                        <div className="flex gap-2 mt-2">
+                        {property.customer?.phone && (
+                          <a 
+                            href={`tel:${property.customer.phone}`}
+                            className="text-sm text-primary-600 font-medium block mt-1"
+                          >
+                            📞 {property.customer.phone}
+                          </a>
+                        )}
+                        <p className="text-sm text-gray-600 mt-2">{property.street}</p>
+                        <p className="text-sm text-gray-600">{property.city}, {property.state} {property.zip}</p>
+                        <div className="flex gap-2 mt-3">
                           <button
                             onClick={() => navigate(`/property/${property.id}`)}
-                            className="text-xs bg-primary-600 text-white px-2 py-1 rounded"
+                            className="text-xs bg-primary-600 text-white px-3 py-1.5 rounded font-medium"
                           >
-                            View Details
+                            Details
                           </button>
                           <button
                             onClick={() => openInMaps(property)}
-                            className="text-xs bg-gray-600 text-white px-2 py-1 rounded"
+                            className="text-xs bg-green-600 text-white px-3 py-1.5 rounded font-medium"
                           >
                             Navigate
                           </button>
@@ -255,10 +263,19 @@ export function MapView() {
               <Card key={property.id} onClick={() => navigate(`/property/${property.id}`)}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900">
+                    <h3 className="font-semibold text-gray-900 text-lg">
                       {property.customer?.firstName} {property.customer?.lastName}
                     </h3>
-                    <p className="text-sm text-gray-500 mt-1">
+                    {property.customer?.phone && (
+                      <a
+                        href={`tel:${property.customer.phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-primary-600 font-medium text-sm mt-1 block"
+                      >
+                        📞 {property.customer.phone}
+                      </a>
+                    )}
+                    <p className="text-sm text-gray-500 mt-2">
                       {property.street}, {property.city}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
