@@ -16,6 +16,41 @@
   .pr-safe {
     padding-right: env(safe-area-inset-right);
   }
+  
+  /* Combined safe area classes with minimum padding */
+  .safe-area-bottom {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  }
+  .safe-area-top {
+    padding-top: max(8px, env(safe-area-inset-top, 8px));
+  }
+  .safe-area-left {
+    padding-left: max(8px, env(safe-area-inset-left, 8px));
+  }
+  .safe-area-right {
+    padding-right: max(8px, env(safe-area-inset-right, 8px));
+  }
+  
+  /* Full safe area (all sides) */
+  .safe-area-all {
+    padding-top: max(8px, env(safe-area-inset-top, 8px));
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+    padding-left: max(8px, env(safe-area-inset-left, 8px));
+    padding-right: max(8px, env(safe-area-inset-right, 8px));
+  }
+}
+
+/* Dynamic viewport height support for mobile browsers */
+@supports (height: 100dvh) {
+  .h-dvh {
+    height: 100dvh;
+  }
+  .min-h-dvh {
+    min-height: 100dvh;
+  }
+  .max-h-dvh {
+    max-height: 100dvh;
+  }
 }
 
 /* Base styles */

@@ -523,15 +523,15 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   });
 
   return (
-    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+    <div className="fixed inset-0 bg-black z-50 flex flex-col" style={{ height: '100dvh' }}>
       {/* Header */}
-      <div className="bg-black/80 px-4 py-3 flex items-center justify-between">
-        <h2 className="text-white font-medium">
+      <div className="flex-shrink-0 bg-black/80 px-4 py-2 flex items-center justify-between safe-area-top">
+        <h2 className="text-white font-medium text-sm">
           {step === 'capture' && 'Scan Service Form'}
           {step === 'processing' && 'Processing...'}
           {step === 'review' && 'Review Extracted Data'}
         </h2>
-        <button onClick={onClose} className="text-white p-2">
+        <button onClick={onClose} className="text-white p-2 -mr-2">
           <X className="w-6 h-6" />
         </button>
       </div>
@@ -539,7 +539,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       {/* Capture Step */}
       {step === 'capture' && (
         <>
-          <div className="flex-1 relative">
+          <div className="flex-1 relative min-h-0 overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
@@ -553,7 +553,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
             
             {/* Overlay guide */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="border-2 border-white/50 rounded-lg w-[90%] h-[70%] flex items-center justify-center">
+              <div className="border-2 border-white/50 rounded-lg w-[90%] h-[60%] flex items-center justify-center">
                 <p className="text-white/70 text-sm bg-black/50 px-3 py-1 rounded">
                   Align service form within frame
                 </p>
@@ -561,13 +561,13 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
             </div>
             
             {error && (
-              <div className="absolute bottom-20 left-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg">
+              <div className="absolute bottom-4 left-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg">
                 {error}
               </div>
             )}
           </div>
           
-          <div className="bg-black/80 p-4 pb-safe space-y-2">
+          <div className="flex-shrink-0 bg-black/90 p-3 space-y-2 safe-area-bottom">
             <Button onClick={captureImage} fullWidth size="lg">
               <Camera className="w-5 h-5 mr-2" />
               Capture
@@ -595,19 +595,19 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
 
       {/* Processing Step */}
       {step === 'processing' && (
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
+        <div className="flex-1 flex flex-col items-center justify-center p-4 min-h-0 overflow-auto">
           {imageData && (
             <img 
               src={imageData} 
               alt="Captured" 
-              className="max-w-full max-h-[40vh] rounded-lg mb-6 opacity-50"
+              className="max-w-full max-h-[30dvh] rounded-lg mb-4 opacity-50"
             />
           )}
           
-          <Loader2 className="w-12 h-12 text-primary-500 animate-spin mb-4" />
-          <p className="text-white text-lg mb-2">Reading form...</p>
+          <Loader2 className="w-10 h-10 text-primary-500 animate-spin mb-3" />
+          <p className="text-white text-base mb-2">Reading form...</p>
           
-          <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
+          <div className="w-48 h-2 bg-gray-700 rounded-full overflow-hidden">
             <div 
               className="h-full bg-primary-500 transition-all duration-300"
               style={{ width: `${progress}%` }}
@@ -620,15 +620,15 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
       {/* Review Step */}
       {step === 'review' && scannedData && (
         <>
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="bg-gray-900 rounded-lg p-4 space-y-4">
-              <h3 className="text-white font-medium flex items-center gap-2">
-                <Zap className="w-5 h-5 text-yellow-400" />
+          <div className="flex-1 overflow-y-auto p-3 min-h-0">
+            <div className="bg-gray-900 rounded-lg p-3 space-y-3">
+              <h3 className="text-white font-medium flex items-center gap-2 text-sm">
+                <Zap className="w-4 h-4 text-yellow-400" />
                 Extracted Data
               </h3>
               
               {/* Extracted fields */}
-              <div className="space-y-3">
+              <div className="space-y-2 text-sm">
                 {scannedData.customerName && (
                   <div className="flex justify-between">
                     <span className="text-gray-400">Customer</span>
@@ -668,7 +668,7 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
                   </div>
                 )}
                 
-                <div className="border-t border-gray-700 my-2" />
+                <div className="border-t border-gray-700 my-1" />
                 
                 {scannedData.serialNumber && (
                   <div className="flex justify-between">
@@ -728,18 +728,18 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
               )}
               
               {/* Raw text preview (collapsible) */}
-              <details className="mt-4">
-                <summary className="text-gray-500 text-sm cursor-pointer">
+              <details className="mt-2">
+                <summary className="text-gray-500 text-xs cursor-pointer">
                   View raw text
                 </summary>
-                <pre className="mt-2 text-xs text-gray-400 whitespace-pre-wrap bg-black/50 p-2 rounded max-h-32 overflow-y-auto">
+                <pre className="mt-2 text-xs text-gray-400 whitespace-pre-wrap bg-black/50 p-2 rounded max-h-24 overflow-y-auto">
                   {scannedData.rawText}
                 </pre>
               </details>
             </div>
           </div>
           
-          <div className="bg-black/80 p-4 pb-safe space-y-2">
+          <div className="flex-shrink-0 bg-black/90 p-3 space-y-2 safe-area-bottom">
             <Button onClick={confirmData} fullWidth>
               <Check className="w-5 h-5 mr-2" />
               Use This Data
