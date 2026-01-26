@@ -233,3 +233,50 @@ CREATE POLICY "Read customers" ON customers
       WHERE portal_code IS NOT NULL
     )
   );
+
+-- Fix phases - consolidate overlapping policies
+DROP POLICY IF EXISTS "Dealership create phases" ON phases;
+DROP POLICY IF EXISTS "Dealership manage phases" ON phases;
+DROP POLICY IF EXISTS "Portal users can view phases for their property" ON phases;
+DROP POLICY IF EXISTS "Users see phases" ON phases;
+
+-- Single SELECT policy for phases
+CREATE POLICY "Read phases" ON phases
+  FOR SELECT USING (
+    -- Users see phases on properties they can see
+    property_id IN (SELECT id FROM properties)
+    -- Portal users can view phases for their property
+    OR property_id IN (
+      SELECT id FROM properties WHERE portal_code IS NOT NULL
+    )
+  );
+
+-- Single INSERT policy for phases (dealership only)
+CREATE POLICY "Create phases" ON phases
+  FOR INSERT WITH CHECK (
+    property_id IN (
+      SELECT id FROM properties WHERE dealership_id = get_user_org_id()
+    )
+    AND get_user_role() IN ('owner', 'admin', 'manager', 'dispatcher')
+  );
+
+-- Single UPDATE policy for phases
+CREATE POLICY "Update phases" ON phases
+  FOR UPDATE USING (
+    -- Dealership can update their phases
+    property_id IN (
+      SELECT id FROM properties WHERE dealership_id = get_user_org_id()
+    )
+    -- Or assigned users
+    OR assigned_org_id = get_user_org_id()
+    OR assigned_user_id = (select auth.uid())
+  );
+
+-- Single DELETE policy for phases (dealership only)
+CREATE POLICY "Delete phases" ON phases
+  FOR DELETE USING (
+    property_id IN (
+      SELECT id FROM properties WHERE dealership_id = get_user_org_id()
+    )
+    AND get_user_role() IN ('owner', 'admin', 'manager', 'dispatcher')
+  );
