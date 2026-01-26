@@ -66,3 +66,34 @@ CREATE OR REPLACE FUNCTION get_user_role()
 RETURNS TEXT AS $$
   SELECT role FROM users WHERE id = (select auth.uid())
 $$ LANGUAGE SQL SECURITY DEFINER STABLE;
+
+-- Fix photos "Owner delete photos" policy
+DROP POLICY IF EXISTS "Owner delete photos" ON photos;
+CREATE POLICY "Owner delete photos" ON photos
+  FOR DELETE USING (created_by_user_id = (select auth.uid()));
+
+-- Fix issues "Assigned update issues" policy
+DROP POLICY IF EXISTS "Assigned update issues" ON issues;
+CREATE POLICY "Assigned update issues" ON issues
+  FOR UPDATE USING (
+    created_by_user_id = (select auth.uid())
+    OR property_id IN (
+      SELECT p.id FROM properties p
+      JOIN phases ph ON ph.property_id = p.id
+      WHERE ph.assigned_org_id = get_user_org_id()
+         OR ph.assigned_user_id = (select auth.uid())
+    )
+  );
+
+-- Fix materials_lists "Assigned update materials" policy
+DROP POLICY IF EXISTS "Assigned update materials" ON materials_lists;
+CREATE POLICY "Assigned update materials" ON materials_lists
+  FOR UPDATE USING (
+    created_by_user_id = (select auth.uid())
+    OR property_id IN (
+      SELECT p.id FROM properties p
+      JOIN phases ph ON ph.property_id = p.id
+      WHERE ph.assigned_org_id = get_user_org_id()
+         OR ph.assigned_user_id = (select auth.uid())
+    )
+  );
