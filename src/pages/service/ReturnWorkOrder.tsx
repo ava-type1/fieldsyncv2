@@ -7,13 +7,15 @@ import {
   Camera,
   Save,
   FileText,
-  AlertCircle
+  AlertCircle,
+  ScanLine
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { SignatureCapture } from '../../components/signatures/SignatureCapture';
 import { PhotoCapture } from '../../components/photos/PhotoCapture';
+import { WorkOrderScanner, ScannedWorkOrder } from '../../components/scanner/WorkOrderScanner';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -59,6 +61,7 @@ export function ReturnWorkOrder() {
   const [customerSignature, setCustomerSignature] = useState<string | null>(null);
   const [techSignature, setTechSignature] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
   
   // New item form
   const [newProblem, setNewProblem] = useState('');
@@ -103,6 +106,34 @@ export function ReturnWorkOrder() {
     
     loadProperty();
   }, [propertyId]);
+
+  // Handle scanned data
+  const handleScanComplete = (data: ScannedWorkOrder) => {
+    // Update form fields with scanned data
+    if (data.poNumber) setPoNumber(data.poNumber);
+    if (data.claimNumber) setClaimNumber(data.claimNumber);
+    
+    // If we have property data, update it (in a real app, you'd create/update the property)
+    if (data.serialNumber || data.customerName) {
+      setProperty(prev => prev ? {
+        ...prev,
+        serialNumber: data.serialNumber || prev.serialNumber,
+        model: data.model || prev.model,
+        street: data.address || prev.street,
+        city: data.city || prev.city,
+        state: data.state || prev.state,
+        zip: data.zip || prev.zip,
+        customer: {
+          ...prev.customer,
+          firstName: data.customerName?.split(/[\s\/]/)[0] || prev.customer.firstName,
+          lastName: data.customerName?.split(/[\s\/]/).slice(1).join(' ') || prev.customer.lastName,
+          phone: data.phone || prev.customer.phone,
+        }
+      } : null);
+    }
+    
+    setShowScanner(false);
+  };
 
   const addWorkItem = () => {
     if (!newProblem.trim()) return;
@@ -236,6 +267,15 @@ export function ReturnWorkOrder() {
     );
   }
 
+  if (showScanner) {
+    return (
+      <WorkOrderScanner
+        onScanComplete={handleScanComplete}
+        onClose={() => setShowScanner(false)}
+      />
+    );
+  }
+
   if (showCamera) {
     return (
       <div className="min-h-screen bg-black">
@@ -279,6 +319,15 @@ export function ReturnWorkOrder() {
 
       {/* Job Header - Auto-filled */}
       <div className="bg-white border-b px-4 py-4">
+        {/* Scan Button */}
+        <button
+          onClick={() => setShowScanner(true)}
+          className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-medium shadow-lg"
+        >
+          <ScanLine className="w-5 h-5" />
+          Scan Work Order from Matt
+        </button>
+        
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-xl font-bold text-gray-900">

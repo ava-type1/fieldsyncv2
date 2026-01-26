@@ -13,6 +13,7 @@ import { PropertyDetail } from './pages/properties/PropertyDetail';
 import { WalkthroughForm } from './pages/service/WalkthroughForm';
 import { WalkthroughChecklist } from './pages/service/WalkthroughChecklist';
 import { ReturnWorkOrder } from './pages/service/ReturnWorkOrder';
+import { QuickStart } from './pages/service/QuickStart';
 import { PayCalculator } from './pages/pay/PayCalculator';
 import { MaterialsList } from './pages/materials/MaterialsList';
 import { Dashboard } from './pages/manager/Dashboard';
@@ -104,6 +105,7 @@ export default function App() {
         <Route path="/property/:id/walkthrough" element={<WalkthroughForm />} />
         <Route path="/property/:id/walkthrough-checklist" element={<WalkthroughChecklist />} />
         <Route path="/property/:id/return-work-order" element={<ReturnWorkOrder />} />
+        <Route path="/quick-start" element={<QuickStart />} />
         <Route path="/materials" element={<MaterialsList />} />
         <Route path="/map" element={<MapView />} />
         <Route path="/dashboard" element={<Dashboard />} />
