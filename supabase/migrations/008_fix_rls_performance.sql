@@ -196,10 +196,23 @@ DROP POLICY IF EXISTS "user_select" ON users;
 CREATE POLICY "user_select" ON users
   FOR SELECT USING (id = (select auth.uid()));
 
--- Fix contractor_profiles - consolidate multiple permissive policies into one
+-- Fix contractor_profiles - separate SELECT from INSERT/UPDATE/DELETE to avoid overlap
 DROP POLICY IF EXISTS "Manage own contractor profile" ON contractor_profiles;
 DROP POLICY IF EXISTS "Read contractor profiles" ON contractor_profiles;
+DROP POLICY IF EXISTS "Insert own contractor profile" ON contractor_profiles;
+DROP POLICY IF EXISTS "Update own contractor profile" ON contractor_profiles;
+DROP POLICY IF EXISTS "Delete own contractor profile" ON contractor_profiles;
+
+-- Anyone can read contractor profiles (directory)
 CREATE POLICY "Read contractor profiles" ON contractor_profiles
-  FOR SELECT USING (true);  -- Anyone can read contractor profiles (directory)
-CREATE POLICY "Manage own contractor profile" ON contractor_profiles
-  FOR ALL USING (organization_id = get_user_org_id());
+  FOR SELECT USING (true);
+
+-- Only org owners can manage their own profile (separate policies for each action)
+CREATE POLICY "Insert own contractor profile" ON contractor_profiles
+  FOR INSERT WITH CHECK (organization_id = get_user_org_id());
+
+CREATE POLICY "Update own contractor profile" ON contractor_profiles
+  FOR UPDATE USING (organization_id = get_user_org_id());
+
+CREATE POLICY "Delete own contractor profile" ON contractor_profiles
+  FOR DELETE USING (organization_id = get_user_org_id());
