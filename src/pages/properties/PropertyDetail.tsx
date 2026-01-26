@@ -189,10 +189,13 @@ export function PropertyDetail() {
               </div>
               <Button
                 onClick={() => {
-                  // Use checklist for Initial Walk-Through, regular form for others
-                  const path = servicePhase.type === 'Initial Walk-Through'
-                    ? `/property/${property.id}/walkthrough-checklist`
-                    : `/property/${property.id}/walkthrough`;
+                  // Route based on phase type
+                  let path = `/property/${property.id}/walkthrough`;
+                  if (servicePhase.type === 'Initial Walk-Through') {
+                    path = `/property/${property.id}/walkthrough-checklist`;
+                  } else if (servicePhase.type.includes('Return Work Order')) {
+                    path = `/property/${property.id}/return-work-order`;
+                  }
                   navigate(path);
                 }}
                 className="flex items-center gap-2"
