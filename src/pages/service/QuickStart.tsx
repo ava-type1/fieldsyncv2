@@ -114,10 +114,13 @@ export function QuickStart() {
       ].filter(Boolean).join('\n');
 
       // Create property
+      // Note: dealership_id is required - for now use the user's org as the dealership
+      // In the future, this could be a separate dealership selection/lookup
       const { data: property, error: propertyError } = await supabase
         .from('properties')
         .insert({
           customer_id: customer.id,
+          dealership_id: organizationId,  // Required field
           created_by_org_id: organizationId,
           street: address,
           city: city,
@@ -125,6 +128,7 @@ export function QuickStart() {
           zip: zip,
           manufacturer: 'Nobility Homes',
           serial_number: serialNumber,
+          model: scannedData?.model || null,
           overall_status: 'in_progress',
           current_phase: jobType === 'walkthrough' ? 'Initial Walk-Through' : 'Return Work Order #1',
         })
