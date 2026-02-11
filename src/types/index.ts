@@ -1,41 +1,157 @@
-// Organization Types
-export type OrganizationType = 'dealership' | 'service_company' | 'subcontractor' | 'manufacturer';
+// ============================================
+// FieldSync v2 — Personal Use (Kam's App)
+// ============================================
 
-export type SubscriptionTier = 'free_trial' | 'solo' | 'team' | 'dealership' | 'enterprise';
+// Job Types for Nobility Homes contracting
+export type JobType = 'walkthrough' | 'work_order';
 
-export interface OrgSettings {
-  timezone: string;
-  requirePhotos: boolean;
-  requireSignatures: boolean;
-}
+export type JobStatus = 'active' | 'in_progress' | 'completed' | 'on_hold';
 
-export interface Organization {
+export interface Job {
   id: string;
-  name: string;
-  type: OrganizationType;
-  parentOrgId?: string;
-  settings: OrgSettings;
-  subscription: SubscriptionTier;
-  primaryEmail?: string;
-  primaryPhone?: string;
+  jobType: JobType;
+  status: JobStatus;
+  
+  // Customer info (from scanned paperwork)
+  customerName: string;
+  phone?: string;
+  workPhone?: string;
+  cellPhone?: string;
+  
+  // Address
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  lat?: number;
+  lng?: number;
+  
+  // Nobility specifics
+  serialNumber?: string;
+  poNumber?: string;
+  model?: string;
+  lotNumber?: string;
+  salesperson?: string;
+  setupBy?: string;
+  
+  // Work details
+  notes?: string;
+  
+  // Photo documentation
+  photos: JobPhoto[];
+  
+  // Materials tracking
+  materials: Material[];
+  
+  // Signatures
+  signatures: Signature[];
+  
+  // Checklist items (for walkthroughs)
+  checklistItems: ChecklistItem[];
+  
+  // Timestamps
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
 }
 
-// User Types
-export type UserRole = 'owner' | 'admin' | 'manager' | 'dispatcher' | 'technician' | 'viewer';
+export interface JobPhoto {
+  id: string;
+  jobId: string;
+  dataUrl?: string;      // For offline storage (base64)
+  remoteUrl?: string;     // After upload to Supabase
+  caption?: string;
+  photoType: 'before' | 'during' | 'after' | 'issue' | 'receipt' | 'general';
+  takenAt: string;
+}
 
-export type Permission =
-  | 'properties.view'
-  | 'properties.create'
-  | 'properties.edit'
-  | 'properties.delete'
-  | 'phases.complete'
-  | 'phases.assign'
-  | 'users.manage'
-  | 'reports.view'
-  | 'settings.manage'
-  | 'billing.manage';
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  completed: boolean;
+  completedAt?: string;
+  notes?: string;
+}
+
+// Materials Types
+export type MaterialCategory =
+  | 'electrical'
+  | 'plumbing'
+  | 'hvac'
+  | 'lumber'
+  | 'hardware'
+  | 'trim'
+  | 'paint'
+  | 'flooring'
+  | 'other';
+
+export type MaterialStatus = 'needed' | 'ordered' | 'purchased' | 'on_site' | 'installed';
+
+export interface Material {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  category: MaterialCategory;
+  estimatedUnitCost?: number;
+  actualUnitCost?: number;
+  status: MaterialStatus;
+  purchasedFrom?: string;
+  purchasedAt?: string;
+  notes?: string;
+}
+
+// Signature Types
+export interface Signature {
+  id: string;
+  jobId: string;
+  signatureData: string; // base64
+  signedByName: string;
+  signedByRole: 'customer' | 'technician';
+  signedAt: string;
+}
+
+// Pay tracking
+export interface PayEntry {
+  id: string;
+  date: string;
+  dateEnd?: string;
+  type: 'walkthrough' | 'return' | 'windshield';
+  milesOneWay: number;
+  trips: number;
+  hours?: number;
+  customerName?: string;
+  poNumber?: string;
+  serialNumber?: string;
+  address?: string;
+  notes?: string;
+  jobId?: string; // Link to a job
+}
+
+// Time tracking
+export interface TimeEntry {
+  id: string;
+  jobId?: string;
+  startTime: string;
+  endTime?: string;
+  pausedDuration: number;
+  totalDuration?: number;
+  hourlyRate: number;
+  mileage?: number;
+  mileageRate: number;
+  earnings?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+// Sync status for offline support
+export type SyncStatus = 'synced' | 'pending' | 'uploading' | 'error';
+
+// ============================================
+// Legacy types kept for compatibility
+// ============================================
+export type UserRole = 'owner' | 'admin' | 'manager' | 'dispatcher' | 'technician' | 'viewer';
+export type Permission = string;
 
 export interface User {
   id: string;
@@ -52,7 +168,19 @@ export interface User {
   updatedAt: string;
 }
 
-// Customer Types
+export interface Organization {
+  id: string;
+  name: string;
+  type: string;
+  settings: Record<string, any>;
+  subscription: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Legacy types needed by existing components
+export type PropertyStatus = 'pending_delivery' | 'in_progress' | 'on_hold' | 'completed' | 'warranty_active' | 'closed';
+
 export interface Customer {
   id: string;
   organizationId: string;
@@ -65,15 +193,6 @@ export interface Customer {
   createdAt: string;
   updatedAt: string;
 }
-
-// Property Types
-export type PropertyStatus =
-  | 'pending_delivery'
-  | 'in_progress'
-  | 'on_hold'
-  | 'completed'
-  | 'warranty_active'
-  | 'closed';
 
 export interface Property {
   id: string;
@@ -90,17 +209,8 @@ export interface Property {
   manufacturer: string;
   model?: string;
   serialNumber?: string;
-  squareFootage?: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  sections?: number;
-  soldDate?: string;
-  deliveryDate?: string;
-  targetCompletionDate?: string;
-  actualCompletionDate?: string;
-  moveInDate?: string;
-  currentPhase?: string;
   overallStatus: PropertyStatus;
+  currentPhase?: string;
   dealershipId: string;
   createdByOrgId: string;
   createdByUserId?: string;
@@ -109,69 +219,14 @@ export interface Property {
   phases?: Phase[];
   issues?: Issue[];
   materialsLists?: MaterialsList[];
-  portalCode?: string; // Unique shareable code for customer portal access
+  portalCode?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-// Phase Types
-export type PhaseCategory =
-  | 'site_prep'
-  | 'delivery'
-  | 'setup'
-  | 'utilities'
-  | 'exterior'
-  | 'interior'
-  | 'inspection'
-  | 'service';
-
-export type PhaseType =
-  | 'site_clearing'
-  | 'pad_preparation'
-  | 'utility_stub'
-  | 'home_delivery'
-  | 'set_and_level'
-  | 'blocking'
-  | 'tie_downs'
-  | 'marriage_line'
-  | 'electrical_hookup'
-  | 'plumbing_hookup'
-  | 'hvac_startup'
-  | 'gas_hookup'
-  | 'septic_connect'
-  | 'well_connect'
-  | 'skirting'
-  | 'porch_steps'
-  | 'gutters'
-  | 'landscaping'
-  | 'driveway'
-  | 'flooring_completion'
-  | 'trim_completion'
-  | 'paint_touchup'
-  | 'appliance_install'
-  | 'county_inspection'
-  | 'final_inspection'
-  | 'walkthrough'
-  | 'punch_list'
-  | 'warranty_call'
-  | 'service_call';
-
-export type PhaseStatus =
-  | 'not_started'
-  | 'scheduled'
-  | 'in_progress'
-  | 'on_hold'
-  | 'blocked'
-  | 'completed'
-  | 'skipped';
-
-export interface ChecklistItem {
-  id: string;
-  label: string;
-  completed: boolean;
-  completedAt?: string;
-  notes?: string;
-}
+export type PhaseCategory = 'site_prep' | 'delivery' | 'setup' | 'utilities' | 'exterior' | 'interior' | 'inspection' | 'service';
+export type PhaseType = string;
+export type PhaseStatus = 'not_started' | 'scheduled' | 'in_progress' | 'on_hold' | 'blocked' | 'completed' | 'skipped';
 
 export interface Phase {
   id: string;
@@ -202,18 +257,7 @@ export interface Phase {
   updatedAt: string;
 }
 
-// Photo Types
-export type PhotoType =
-  | 'before'
-  | 'during'
-  | 'after'
-  | 'issue'
-  | 'receipt'
-  | 'signature'
-  | 'inspection'
-  | 'general';
-
-export type SyncStatus = 'synced' | 'pending' | 'uploading' | 'error';
+export type PhotoType = 'before' | 'during' | 'after' | 'issue' | 'receipt' | 'signature' | 'inspection' | 'general';
 
 export interface Photo {
   id: string;
@@ -233,28 +277,9 @@ export interface Photo {
   createdAt: string;
 }
 
-// Issue Types
-export type IssueCategory =
-  | 'electrical'
-  | 'plumbing'
-  | 'hvac'
-  | 'structural'
-  | 'cosmetic'
-  | 'appliance'
-  | 'exterior'
-  | 'safety'
-  | 'other';
-
+export type IssueCategory = 'electrical' | 'plumbing' | 'hvac' | 'structural' | 'cosmetic' | 'appliance' | 'exterior' | 'safety' | 'other';
 export type IssueSeverity = 'low' | 'medium' | 'high' | 'critical';
-
-export type IssueStatus =
-  | 'reported'
-  | 'acknowledged'
-  | 'in_progress'
-  | 'pending_parts'
-  | 'resolved'
-  | 'wont_fix'
-  | 'duplicate';
+export type IssueStatus = 'reported' | 'acknowledged' | 'in_progress' | 'pending_parts' | 'resolved' | 'wont_fix' | 'duplicate';
 
 export interface Issue {
   id: string;
@@ -275,35 +300,6 @@ export interface Issue {
   resolvedByUserId?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-// Materials Types
-export type MaterialCategory =
-  | 'electrical'
-  | 'plumbing'
-  | 'hvac'
-  | 'lumber'
-  | 'hardware'
-  | 'trim'
-  | 'paint'
-  | 'flooring'
-  | 'other';
-
-export type MaterialStatus = 'needed' | 'ordered' | 'purchased' | 'on_site' | 'installed';
-
-export interface Material {
-  id: string;
-  name: string;
-  quantity: number;
-  unit: string;
-  category: MaterialCategory;
-  estimatedUnitCost?: number;
-  actualUnitCost?: number;
-  status: MaterialStatus;
-  purchasedFrom?: string;
-  purchasedAt?: string;
-  receiptPhotoUrl?: string;
-  notes?: string;
 }
 
 export interface MaterialsList {

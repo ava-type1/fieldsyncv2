@@ -2,20 +2,42 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User, Organization, UserRole, Permission } from '../types';
 
+// Kam's default user - no auth needed
+const DEFAULT_USER: User = {
+  id: 'kam-local',
+  email: 'kam@fieldsync.app',
+  fullName: 'Kameron Martin',
+  phone: '',
+  organizationId: 'nobility-local',
+  role: 'owner' as UserRole,
+  permissions: ['*'] as Permission[],
+  isActive: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+const DEFAULT_ORG: Organization = {
+  id: 'nobility-local',
+  name: 'Nobility Homes Contractor',
+  type: 'subcontractor',
+  settings: { requirePhotos: true, requireSignatures: true, timezone: 'America/New_York' },
+  subscription: 'solo',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
 interface AuthState {
   user: User | null;
   organization: Organization | null;
   isLoading: boolean;
   isInitialized: boolean;
 
-  // Actions
   setUser: (user: User | null) => void;
   setOrganization: (org: Organization | null) => void;
   setLoading: (loading: boolean) => void;
   setInitialized: (initialized: boolean) => void;
   logout: () => void;
 
-  // Helpers
   hasPermission: (permission: Permission) => boolean;
   hasRole: (roles: UserRole[]) => boolean;
   isManager: () => boolean;
@@ -24,42 +46,26 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      user: null,
-      organization: null,
-      isLoading: true,
-      isInitialized: false,
+      // Auto-initialize with Kam's profile
+      user: DEFAULT_USER,
+      organization: DEFAULT_ORG,
+      isLoading: false,
+      isInitialized: true,
 
       setUser: (user) => set({ user }),
       setOrganization: (organization) => set({ organization }),
       setLoading: (isLoading) => set({ isLoading }),
       setInitialized: (isInitialized) => set({ isInitialized }),
 
-      logout: () =>
-        set({
-          user: null,
-          organization: null,
-          isLoading: false,
-        }),
+      logout: () => set({
+        user: DEFAULT_USER,
+        organization: DEFAULT_ORG,
+        isLoading: false,
+      }),
 
-      hasPermission: (permission) => {
-        const { user } = get();
-        if (!user) return false;
-        // Owner and admin have all permissions
-        if (user.role === 'owner' || user.role === 'admin') return true;
-        return user.permissions.includes(permission);
-      },
-
-      hasRole: (roles) => {
-        const { user } = get();
-        if (!user) return false;
-        return roles.includes(user.role);
-      },
-
-      isManager: () => {
-        const { user } = get();
-        if (!user) return false;
-        return ['owner', 'admin', 'manager'].includes(user.role);
-      },
+      hasPermission: () => true, // Single user, all permissions
+      hasRole: () => true,
+      isManager: () => false, // Kam is a technician, not manager
     }),
     {
       name: 'fieldsync-auth',

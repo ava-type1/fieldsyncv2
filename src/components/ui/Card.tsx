@@ -19,9 +19,9 @@ export function Card({ children, className = '', onClick, padding = 'md' }: Card
     <div
       onClick={onClick}
       className={`
-        bg-white rounded-lg shadow-sm border border-gray-200
+        bg-gray-900 rounded-xl border border-gray-800
         ${paddingStyles[padding]}
-        ${onClick ? 'active:bg-gray-50 cursor-pointer' : ''}
+        ${onClick ? 'active:bg-gray-800 cursor-pointer transition-colors' : ''}
         ${className}
       `}
     >

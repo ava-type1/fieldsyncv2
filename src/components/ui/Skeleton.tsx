@@ -3,16 +3,16 @@ interface SkeletonProps {
 }
 
 export function Skeleton({ className = '' }: SkeletonProps) {
-  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+  return <div className={`animate-pulse bg-gray-800 rounded ${className}`} />;
 }
 
 export function PropertyCardSkeleton() {
   return (
-    <div className="bg-white rounded-lg border p-4 space-y-3">
+    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-3">
       <Skeleton className="h-5 w-2/3" />
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-1/2" />
-      <div className="flex justify-between pt-3 border-t">
+      <div className="flex justify-between pt-3 border-t border-gray-800">
         <Skeleton className="h-6 w-20 rounded-full" />
         <Skeleton className="h-6 w-6 rounded" />
       </div>
@@ -31,9 +31,9 @@ export function PropertyDetailSkeleton() {
       <div className="space-y-3">
         <Skeleton className="h-6 w-32" />
         <div className="space-y-2">
-          <Skeleton className="h-16 w-full rounded-lg" />
-          <Skeleton className="h-16 w-full rounded-lg" />
-          <Skeleton className="h-16 w-full rounded-lg" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
         </div>
       </div>
     </div>
