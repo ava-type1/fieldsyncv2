@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
-import { createWorker, Worker } from 'tesseract.js';
 import { Camera, X, Loader2, Check, RotateCcw, Zap, Upload } from 'lucide-react';
 import { Button } from '../ui/Button';
+
+const OCR_WORKER_URL = 'https://fieldsync-ocr.kameronmartinllc.workers.dev';
 
 // Scan tip removed - landscape orientation didn't improve OCR results
 
@@ -42,7 +43,6 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nativeCameraRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const workerRef = useRef<Worker | null>(null);
 
   // Start camera with optimal settings for document scanning
   const startCamera = useCallback(async () => {
@@ -210,384 +210,67 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     reader.readAsDataURL(file);
   };
 
-  // Known Nobility Homes model names for fuzzy matching
-  const NOBILITY_MODELS = [
-    'Hailey', 'Kingswood', 'Tropic Isle', 'Kensington', 'Lakewood', 'Magnolia',
-    'Palm Bay', 'Cedar Key', 'Bay Shore', 'Regency', 'Brookhaven', 'Wind Zone',
-    'Cypress', 'Coastal', 'Windsor', 'Carolina', 'Sandalwood', 'Flagler', 'Sunrise'
-  ];
-  
-  // Common OCR substitution errors and corrections
-  const ocrCorrections: Record<string, string> = {
-    // Common letter misreads for Taylor
-    'raylor': 'Taylor', 'laylor': 'Taylor', '1aylor': 'Taylor', 'Tay1or': 'Taylor', 'Tayl0r': 'Taylor',
-    'Halley': 'Hailey', 'Ha1ley': 'Hailey', 'Hai1ey': 'Hailey', 'Hailay': 'Hailey',
-    'l-lailey': 'Hailey', 'Hai ley': 'Hailey',
-    'lessica': 'Jessica', 'Jessíca': 'Jessica', '1essica': 'Jessica', 'Jess1ca': 'Jessica',
-    'lacksonville': 'Jacksonville', '1acksonville': 'Jacksonville', 'Jacksonvi11e': 'Jacksonville',
-    'Noe1': 'Noel', 'N0el': 'Noel',
-    'Mede1ros': 'Medeiros', 'Medeirns': 'Medeiros', 'Medeiros': 'Medeiros',
-    'rrent': 'Trent', 'lrent': 'Trent', 'rrentn': 'Trenton', 'lrenton': 'Trenton',
-    // State variations
-    'Fl': 'FL', 'fl': 'FL', 'fL': 'FL',
-  };
-  
-  // Apply OCR corrections to text
-  const applyOcrCorrections = (text: string): string => {
-    let corrected = text;
-    for (const [wrong, right] of Object.entries(ocrCorrections)) {
-      corrected = corrected.replace(new RegExp(wrong, 'gi'), right);
-    }
-    // Fix common OCR issues: lowercase at start of word that should be caps
-    // e.g., "raylor" -> "Taylor", "lessica" -> "Jessica"
-    corrected = corrected.replace(/\b([rl1])([aeiou][a-z]+)\b/gi, (match, first, rest) => {
-      const lowerMatch = match.toLowerCase();
-      // Check if this looks like a name that should start with T or J
-      if (lowerMatch.match(/^[rl1]aylor/i)) return 'Taylor';
-      if (lowerMatch.match(/^[l1]essica/i)) return 'Jessica';
-      if (lowerMatch.match(/^[l1]ack/i)) return match.replace(/^[l1]/i, 'J');
-      return match;
-    });
-    return corrected;
-  };
-  
-  // Fuzzy match against known model names
-  const fuzzyMatchModel = (text: string): string | null => {
-    const cleanText = text.toLowerCase().replace(/[^a-z\s]/gi, '');
-    
-    for (const model of NOBILITY_MODELS) {
-      const modelLower = model.toLowerCase();
-      // Direct match
-      if (cleanText.includes(modelLower)) return model;
-      
-      // Fuzzy match: allow 1-2 character differences
-      const words = cleanText.split(/\s+/);
-      for (const word of words) {
-        if (word.length < 4) continue;
-        // Check Levenshtein-like similarity
-        let matches = 0;
-        const shorter = word.length < modelLower.length ? word : modelLower;
-        const longer = word.length < modelLower.length ? modelLower : word;
-        for (let i = 0; i < shorter.length; i++) {
-          if (longer.includes(shorter[i])) matches++;
-        }
-        // If 80%+ characters match, consider it a match
-        if (matches / shorter.length >= 0.8 && shorter.length >= 4) {
-          return model;
-        }
-      }
-    }
-    return null;
-  };
-  
-  // Parse extracted text - optimized for Nobility Homes Service Department forms
-  // Form layout: 
-  //   Header: Plant #1, 3741 SW 7th street, Ocala FL 34474, Phone/Fax
-  //   Name: [First Last]  [Second person name - ignore]
-  //   Address: [street address]
-  //   City: [city] State: [st] Zip: [zip]
-  //   Home Ph: [xxx-xxx-xxxx] Work Ph: [xxx-xxx-xxxx] Cell Ph: [xxx-xxx-xxxx]
-  //   Serial #: [X#-#####AB]
-  const parseWorkOrderText = (text: string): ScannedWorkOrder => {
-    const result: ScannedWorkOrder = { rawText: text };
-    
-    console.log('=== OCR Raw Text ===\n', text, '\n=== END ===');
-    
-    // Apply OCR corrections first
-    let normalized = applyOcrCorrections(text);
-    
-    // Normalize: collapse multiple spaces, normalize line endings
-    normalized = normalized.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ');
-    
-    // Remove known header content that shouldn't be parsed as customer data
-    // Plant address: "Plant #1, 3741 SW 7th Street, Ocala FL 34474"
-    const withoutHeader = normalized
-      .replace(/Plant\s*#?\s*\d[^,\n]*Ocala[^,\n]*34474[^,\n]*/gi, '')
-      .replace(/3741\s*SW\s*7th\s*[Ss]treet/gi, '')
-      .replace(/Ocala\s*,?\s*FL\s*,?\s*34474/gi, '')
-      .replace(/352[-.\s]*732[-.\s]*\d{4}/g, ''); // Remove plant phone numbers
-    
-    console.log('=== After header removal ===\n', withoutHeader, '\n=== END ===');
-    
-    // === SERIAL NUMBER ===
-    // Pattern: X#-#####[AB] - letter, digit, dash, 5 digits, optional letters
-    // Examples: N1-17697AB, N1-17552, A2-12345XY
-    const serialMatch = normalized.match(/(?:Serial\s*#?[:\s]*)?([A-Z]\d[\-\s]?\d{5}[A-Z]{0,2})/i);
-    if (serialMatch) {
-      result.serialNumber = serialMatch[1].replace(/[\s]/g, '').toUpperCase();
-    }
-    
-    // === NAME ===
-    // Strategy: Look for "Name" label, then extract the capitalized name that follows
-    // OCR may garble text, so we also try pattern matching on name-like text
-    
-    // First: Look for text between "Name" label and next field label
-    // The form shows: "Name Jessica Noel-Medeiros" followed by another name or "Address"
-    const nameSection = withoutHeader.match(/Name\s+([\s\S]{5,60}?)(?=\s*(?:Address|Home\s*Ph|Dealer|Sales|Serial|\n\s*\n|$))/i);
-    
-    if (nameSection) {
-      const section = nameSection[1];
-      // Look for capitalized name patterns: "First Last" or "First Last-Name" or "First Middle Last"
-      // Must have capital at start, may have hyphen
-      const nameMatch = section.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?:[\-][A-Z][a-z]+)?)/);
-      if (nameMatch) {
-        result.customerName = nameMatch[1].trim();
-      }
-    }
-    
-    // Fallback: Scan entire text (minus plant header) for name patterns
-    if (!result.customerName) {
-      // Common first names - extensive list
-      const firstNamePattern = /\b(James|John|Robert|Michael|David|William|Richard|Joseph|Thomas|Charles|Christopher|Daniel|Matthew|Anthony|Mark|Steven|Paul|Andrew|Joshua|Kenneth|Kevin|Brian|George|Timothy|Ronald|Edward|Jason|Jeffrey|Ryan|Jacob|Gary|Nicholas|Eric|Jonathan|Stephen|Larry|Justin|Scott|Brandon|Benjamin|Samuel|Gregory|Alexander|Patrick|Dennis|Tyler|Aaron|Adam|Nathan|Henry|Zachary|Peter|Kyle|Bruce|Sean|Christian|Austin|Arthur|Jesse|Dylan|Bryan|Joe|Jordan|Albert|Logan|Randy|Roy|Eugene|Russell|Mason|Philip|Louis|Carl|Ethan|Keith|Roger|Barry|Walter|Noah|Alan|Donna|Mary|Patricia|Jennifer|Linda|Barbara|Elizabeth|Susan|Jessica|Sarah|Karen|Lisa|Nancy|Betty|Margaret|Sandra|Ashley|Kimberly|Emily|Michelle|Dorothy|Carol|Amanda|Melissa|Deborah|Stephanie|Rebecca|Sharon|Laura|Cynthia|Kathleen|Amy|Angela|Anna|Brenda|Pamela|Emma|Nicole|Helen|Samantha|Katherine|Christine|Rachel|Janet|Catherine|Maria|Heather|Diane|Ruth|Julie|Olivia|Joyce|Virginia|Victoria|Kelly|Lauren|Christina|Megan|Andrea|Cheryl|Hannah|Martha|Gloria|Teresa|Sara|Madison|Kathryn|Janice|Jean|Alice|Sophia|Grace|Denise|Amber|Marilyn|Danielle|Isabella|Diana|Natalie|Brittany|Charlotte|Marie|Kayla|Alexis|Taylor|Velvet|Crystal|Tiffany|Brandy|Destiny)\s+([A-Z][a-z]+(?:[\-][A-Z][a-z]+)?)/;
-      
-      // Don't match names in salesperson section
-      const textWithoutSales = withoutHeader.replace(/Sales\s*person[:\s]+[A-Za-z\s]+/gi, '___SALES___');
-      
-      const fnMatch = textWithoutSales.match(firstNamePattern);
-      if (fnMatch) {
-        result.customerName = `${fnMatch[1]} ${fnMatch[2]}`;
-      }
-    }
-    
-    // === ADDRESS ===
-    // Look for "Address" label followed by street address
-    // CRITICAL: Skip Ocala plant address (3741 SW 7th Street)
-    
-    // Try labeled format
-    const addressAfterLabel = withoutHeader.match(/Address\s+(\d+\s*[A-Za-z0-9\s]+?)(?=\s*(?:City|State|Zip|Home|Ph|$))/i);
-    if (addressAfterLabel) {
-      let addr = addressAfterLabel[1].trim();
-      // Fix mushed text: "SE77" -> "SE 77", "77lane" -> "77 Lane"
-      addr = addr.replace(/([A-Za-z])(\d)/g, '$1 $2');
-      addr = addr.replace(/(\d)([A-Za-z])/g, '$1 $2');
-      addr = addr.replace(/\s+/g, ' ').trim();
-      // Capitalize street suffix
-      addr = addr.replace(/\b(lane|ln|street|st|road|rd|drive|dr|avenue|ave|court|ct|circle|cir|way|place|pl|boulevard|blvd|trail|trl|terrace|ter)\b/gi, 
-        (m) => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
-      if (addr.length >= 5 && !addr.match(/3741|7th/i)) {
-        result.address = addr;
-      }
-    }
-    
-    // Fallback: Look for street number patterns
-    if (!result.address) {
-      const addressPatterns = withoutHeader.match(/(\d{3,5}\s*(?:[NSEW]{1,2}\s*)?(?:\d+\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)?)/gi) || [];
-      
-      for (const addr of addressPatterns) {
-        // Skip Ocala plant address
-        if (addr.match(/3741|7th\s*street|SW\s*7/i)) continue;
-        if (/^\d+$/.test(addr.trim())) continue;
-        // Skip form field keywords
-        if (addr.match(/Phone|Serial|Claim|Model|Date|Ocala|Plant|Service|Department|Copy|Fax|Lot|Setup|Sales|Dealer|Cell|Work|Home|Zip|State|City/i)) continue;
-        
-        let cleanAddr = addr.trim();
-        cleanAddr = cleanAddr.replace(/([A-Za-z])(\d)/g, '$1 $2');
-        cleanAddr = cleanAddr.replace(/(\d)([A-Za-z])/g, '$1 $2');
-        cleanAddr = cleanAddr.replace(/\s+/g, ' ');
-        
-        if (cleanAddr.length >= 8) {
-          result.address = cleanAddr;
-          break;
-        }
-      }
-    }
-    
-    // === CITY, STATE, ZIP ===
-    // Format: "City Jacksonville State FL Zip 32208"
-    // CRITICAL: Must NOT pick up Ocala/34474 from plant header
-    
-    // Try labeled format: "City [name] State"
-    let cityMatch = withoutHeader.match(/City\s+([A-Za-z][A-Za-z\s]*?)(?=\s+(?:State|FL|Fl|fl))/i);
-    if (cityMatch && !cityMatch[1].match(/Ocala/i)) {
-      result.city = cityMatch[1].trim();
-      // Proper case
-      result.city = result.city.split(/\s+/).map(w => 
-        w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
-      ).join(' ');
-    }
-    
-    // State - look for "State FL" or standalone "FL" near zip
-    const stateMatch = withoutHeader.match(/State\s+([A-Z]{2})|([A-Z]{2})\s+(?:Zip\s*)?\d{5}/i);
-    if (stateMatch) {
-      result.state = (stateMatch[1] || stateMatch[2]).toUpperCase();
-    }
-    
-    // ZIP: Must skip Ocala plant ZIPs (34474, 33474)
-    // Look for "Zip XXXXX" pattern first
-    const zipLabelMatch = withoutHeader.match(/Zip\s+(\d{5})/i);
-    if (zipLabelMatch && !['34474', '33474'].includes(zipLabelMatch[1])) {
-      result.zip = zipLabelMatch[1];
-    }
-    
-    // Fallback: find ZIPs not associated with Ocala
-    if (!result.zip) {
-      // Find all 5-digit numbers that look like ZIPs (not part of phone, serial, etc.)
-      const potentialZips = withoutHeader.match(/(?<![0-9\-])(\d{5})(?![0-9\-])/g) || [];
-      for (const pz of potentialZips) {
-        // Skip Ocala area codes and plant ZIP
-        if (!['34474', '33474', '34471', '34472', '34473', '34475', '34476', '34477', '34478', '34479', '34480', '34481', '34482', '34483'].includes(pz)) {
-          result.zip = pz;
-          break;
-        }
-      }
-    }
-    
-    // Try "City, FL ZIP" or "City FL ZIP" pattern
-    if (!result.city) {
-      // Match city names (may end in common suffixes) followed by FL and ZIP
-      const cityStateZip = withoutHeader.match(/([A-Z][a-z]+(?:ville|ton|land|burg|ford|field|wood|beach|springs|park|son)?)[,\s]+(?:FL|Fl|fl)[,\s]+(\d{5})/);
-      if (cityStateZip && cityStateZip[1].toLowerCase() !== 'ocala') {
-        result.city = cityStateZip[1];
-        result.state = 'FL';
-        if (!['34474', '33474'].includes(cityStateZip[2])) {
-          result.zip = cityStateZip[2];
-        }
-      }
-    }
-    
-    // Fallback: known Florida city names (OCR-corrected versions included)
-    if (!result.city) {
-      const flCities = withoutHeader.match(/\b(Trenton|Jacksonville|Gainesville|Tampa|Orlando|Tallahassee|Pensacola|Miami|Bryceville|Yulee|Starke|Palatka|Lake\s*City|Live\s*Oak|Perry|Madison|Mayo|Cross\s*City|Bronson|Williston|Archer|Newberry|Alachua|High\s*Springs|Fort\s*White|Chiefland|Cedar\s*Key|Crystal\s*River|Inverness|Dunnellon|Belleview|Summerfield|The\s*Villages|Leesburg|Tavares|Eustis|Mount\s*Dora|Sanford|Daytona|Palm\s*Coast|St\.?\s*Augustine)\b/i);
-      if (flCities) {
-        let city = flCities[1];
-        result.city = city.split(/\s+/).map(w => 
-          w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
-        ).join(' ');
-        result.state = 'FL';
-      }
-    }
-    
-    // === PHONE NUMBERS ===
-    const phoneRegex = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/;
-    
-    // Home/Primary phone
-    const homePhMatch = withoutHeader.match(new RegExp(`(?:Home\\s*)?Ph[:\\s]*${phoneRegex.source}`, 'i'));
-    if (homePhMatch) {
-      result.phone = `${homePhMatch[1]}-${homePhMatch[2]}-${homePhMatch[3]}`;
-    }
-    
-    // Work phone
-    const workPhMatch = withoutHeader.match(new RegExp(`Work\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
-    if (workPhMatch) {
-      result.workPhone = `${workPhMatch[1]}-${workPhMatch[2]}-${workPhMatch[3]}`;
-    }
-    
-    // Cell phone
-    const cellPhMatch = withoutHeader.match(new RegExp(`Cell\\s*Ph[:\\s]*${phoneRegex.source}`, 'i'));
-    if (cellPhMatch) {
-      result.cellPhone = `${cellPhMatch[1]}-${cellPhMatch[2]}-${cellPhMatch[3]}`;
-    }
-    
-    // Fallback: collect all phones, skip plant numbers
-    const phonePattern = /[(\s]*(\d{3})[)\s.\-]*(\d{3})[\s.\-]*(\d{4})/g;
-    const allPhones: string[] = [];
-    let phoneMatch;
-    
-    while ((phoneMatch = phonePattern.exec(withoutHeader)) !== null) {
-      const num = `${phoneMatch[1]}-${phoneMatch[2]}-${phoneMatch[3]}`;
-      // Skip plant numbers (352-732-xxxx)
-      if (!num.startsWith('352-732') && !allPhones.includes(num)) {
-        allPhones.push(num);
-      }
-    }
-    
-    if (!result.phone && allPhones.length > 0) result.phone = allPhones[0];
-    if (!result.workPhone && allPhones.length > 1) result.workPhone = allPhones[1];
-    if (!result.cellPhone && allPhones.length > 2) result.cellPhone = allPhones[2];
-    
-    // === LOT / DEALER ===
-    const lotMatch = withoutHeader.match(/(?:Dealer|Lot)\s+(?:Lot\s+)?(\d+[\-\s]*[A-Za-z]+)/i);
-    if (lotMatch) {
-      result.lotNumber = lotMatch[1].replace(/\s+/g, '-').trim();
-      result.dealer = `Lot ${result.lotNumber}`;
-    }
-    
-    // === MODEL ===
-    // First try: Look for "Model #" or "Model" label
-    const modelMatch = withoutHeader.match(/Model\s*#?\s+([A-Za-z0-9\s\-]+?)(?=\s+(?:C\s*of|Date|Serial|Dealer|$|\n))/i);
-    if (modelMatch) {
-      const rawModel = modelMatch[1].trim();
-      // Try to fuzzy match to known model
-      const fuzzyModel = fuzzyMatchModel(rawModel);
-      if (fuzzyModel) {
-        result.model = fuzzyModel;
-      } else {
-        // Clean up: take first word that looks like a model name
-        const cleanModel = rawModel.match(/^([A-Z][a-z]+)/i);
-        if (cleanModel) {
-          result.model = cleanModel[1];
-        }
-      }
-    }
-    
-    // Fallback: scan for known model names anywhere in text
-    if (!result.model) {
-      const modelFromText = fuzzyMatchModel(withoutHeader);
-      if (modelFromText) {
-        result.model = modelFromText;
-      }
-    }
-    
-    // === SALESPERSON ===
-    // OCR often misreads initial capital (T -> r, J -> l)
-    let salespersonMatch = withoutHeader.match(/Sales\s*person[:\s]+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
-    if (salespersonMatch) {
-      let name = salespersonMatch[1].trim();
-      // Apply OCR corrections
-      name = applyOcrCorrections(name);
-      // Fix lowercase start that should be uppercase
-      const nameParts = name.split(/\s+/);
-      result.salesperson = nameParts.map(p => 
-        p.charAt(0).toUpperCase() + p.slice(1)
-      ).join(' ');
-    }
-    
-    // === SETUP BY ===
-    const setupMatch = withoutHeader.match(/Set\s*up\s*(?:by)?[:\s]+([A-Za-z]+(?:\s+[A-Za-z]+)?)/i);
-    if (setupMatch) {
-      let name = setupMatch[1].trim();
-      name = applyOcrCorrections(name);
-      result.setupBy = name.split(/\s+/).map(p => 
-        p.charAt(0).toUpperCase() + p.slice(1)
-      ).join(' ');
-    }
-    
-    return result;
-  };
-
-  // Process image with OCR
+  // Process image with AI Vision (Cloudflare Workers AI)
   const processImage = async (dataUrl: string) => {
     setStep('processing');
-    setProgress(0);
+    setProgress(10);
     setError(null);
     
     try {
-      // Create worker
-      const worker = await createWorker('eng', 1, {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            setProgress(Math.round(m.progress * 100));
-          }
-        },
+      setProgress(30);
+      
+      const response = await fetch(OCR_WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
       });
       
-      workerRef.current = worker;
+      setProgress(80);
       
-      // Run OCR
-      const { data: { text } } = await worker.recognize(dataUrl);
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
       
-      // Parse the text
-      const parsed = parseWorkOrderText(text);
+      const result = await response.json();
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to extract data');
+      }
+      
+      setProgress(100);
+      
+      // Map AI response to ScannedWorkOrder format
+      const data = result.data;
+      const parsed: ScannedWorkOrder = {
+        rawText: JSON.stringify(data, null, 2),
+        serialNumber: data.serialNumber || undefined,
+        customerName: data.customerName || undefined,
+        address: data.address || undefined,
+        city: data.city || undefined,
+        state: data.state || undefined,
+        zip: data.zip || undefined,
+        phone: data.phone || undefined,
+        workPhone: data.workPhone || undefined,
+        cellPhone: data.cellPhone || undefined,
+        poNumber: data.poNumber || undefined,
+        claimNumber: data.claimNumber || undefined,
+        model: data.model || undefined,
+        dealer: data.dealer || undefined,
+        lotNumber: data.lotNumber || undefined,
+        salesperson: data.salesperson || undefined,
+        setupBy: data.setupBy || undefined,
+      };
+      
       setScannedData(parsed);
       setStep('review');
       
-      // Cleanup
-      await worker.terminate();
-      workerRef.current = null;
-      
-    } catch (err) {
-      console.error('OCR error:', err);
-      setError('Failed to process image. Please try again.');
+    } catch (err: any) {
+      console.error('AI Vision error:', err);
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        setError('No internet connection. Save the photo and try again when you have signal.');
+      } else {
+        setError(`Failed to process image: ${err.message}. Please try again.`);
+      }
       setStep('capture');
       setImageData(null);
     }
@@ -613,9 +296,6 @@ export function WorkOrderScanner({ onScanComplete, onClose }: WorkOrderScannerPr
     startCamera();
     return () => {
       stopCamera();
-      if (workerRef.current) {
-        workerRef.current.terminate();
-      }
     };
   });
 
