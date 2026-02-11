@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Camera, ClipboardList, Wrench, ChevronRight, Check, Image, X
+  Camera, ClipboardList, Wrench, ChevronRight, Check, Image, X, ZoomIn, Minimize2
 } from 'lucide-react';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -25,6 +26,7 @@ export function ScanPage() {
   const [zip, setZip] = useState('');
   const [phone, setPhone] = useState('');
   
+  const [expanded, setExpanded] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
@@ -110,21 +112,77 @@ export function ScanPage() {
             </div>
           </Card>
         ) : (
-          <Card className="p-0 overflow-hidden">
-            <div className="relative">
-              <img src={photoData} alt="Form" className="w-full max-h-48 object-cover" />
-              <button
-                onClick={() => setPhotoData(null)}
-                className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="absolute bottom-2 left-2 bg-green-500/90 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
-                <Check className="w-3 h-3" />
-                Photo saved
+          <>
+            {/* Inline zoomable preview */}
+            <Card className="p-0 overflow-hidden">
+              <div className="relative">
+                <TransformWrapper
+                  initialScale={1}
+                  minScale={1}
+                  maxScale={5}
+                  wheel={{ step: 0.2 }}
+                  pinch={{ step: 5 }}
+                  doubleClick={{ mode: 'toggle', step: 2 }}
+                >
+                  <TransformComponent
+                    wrapperStyle={{ width: '100%', maxHeight: '200px' }}
+                    contentStyle={{ width: '100%' }}
+                  >
+                    <img src={photoData} alt="Form" className="w-full object-contain" />
+                  </TransformComponent>
+                </TransformWrapper>
+                
+                <button
+                  onClick={() => setPhotoData(null)}
+                  className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full z-10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setExpanded(true)}
+                  className="absolute top-2 left-2 bg-black/60 text-white p-1.5 rounded-full z-10"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <div className="absolute bottom-2 left-2 bg-black/50 text-gray-300 text-xs px-2 py-1 rounded-full z-10">
+                  Pinch to zoom • Double-tap
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+
+            {/* Fullscreen zoomable overlay */}
+            {expanded && (
+              <div className="fixed inset-0 bg-black z-50 flex flex-col" style={{ height: '100dvh' }}>
+                <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-black/80">
+                  <span className="text-white text-sm font-medium">Pinch to zoom • Drag to pan</span>
+                  <button
+                    onClick={() => setExpanded(false)}
+                    className="text-white p-2 -mr-2"
+                  >
+                    <Minimize2 className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <TransformWrapper
+                    initialScale={1}
+                    minScale={0.5}
+                    maxScale={8}
+                    wheel={{ step: 0.2 }}
+                    pinch={{ step: 5 }}
+                    doubleClick={{ mode: 'toggle', step: 3 }}
+                    centerOnInit={true}
+                  >
+                    <TransformComponent
+                      wrapperStyle={{ width: '100%', height: '100%' }}
+                      contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <img src={photoData} alt="Form" className="max-w-full max-h-full object-contain" />
+                    </TransformComponent>
+                  </TransformWrapper>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Quick Entry */}
