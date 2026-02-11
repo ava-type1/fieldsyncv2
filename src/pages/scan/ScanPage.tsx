@@ -1,12 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ScanLine, ClipboardList, Wrench, ChevronRight, Zap, Check
+  Camera, ClipboardList, Wrench, ChevronRight, Check, Image, X
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { WorkOrderScanner, ScannedWorkOrder } from '../../components/scanner/WorkOrderScanner';
 import { useJobsStore } from '../../stores/jobsStore';
 import type { JobType } from '../../types';
 
@@ -14,12 +13,10 @@ export function ScanPage() {
   const navigate = useNavigate();
   const addJob = useJobsStore(state => state.addJob);
   
-  const [showScanner, setShowScanner] = useState(false);
-  const [scannedData, setScannedData] = useState<ScannedWorkOrder | null>(null);
+  const [photoData, setPhotoData] = useState<string | null>(null);
   const [jobType, setJobType] = useState<JobType | null>(null);
   const [creating, setCreating] = useState(false);
   
-  // Editable fields after scan
   const [serialNumber, setSerialNumber] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
@@ -27,30 +24,22 @@ export function ScanPage() {
   const [state, setState] = useState('FL');
   const [zip, setZip] = useState('');
   const [phone, setPhone] = useState('');
-  const [workPhone, setWorkPhone] = useState('');
-  const [poNumber, setPoNumber] = useState('');
-  const [lotNumber, setLotNumber] = useState('');
-  const [salesperson, setSalesperson] = useState('');
+  
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
 
-  const handleScanComplete = (data: ScannedWorkOrder) => {
-    setScannedData(data);
-    setSerialNumber(data.serialNumber || '');
-    setCustomerName(data.customerName || '');
-    setAddress(data.address || '');
-    setCity(data.city || '');
-    setState(data.state || 'FL');
-    setZip(data.zip || '');
-    setPhone(data.phone || '');
-    setWorkPhone(data.workPhone || '');
-    setPoNumber(data.poNumber || '');
-    setLotNumber(data.lotNumber || '');
-    setSalesperson(data.salesperson || '');
-    setShowScanner(false);
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPhotoData(ev.target?.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const createJob = () => {
-    if (!jobType) return;
-    
+    if (!jobType || !serialNumber.trim()) return;
     setCreating(true);
     
     try {
@@ -59,212 +48,174 @@ export function ScanPage() {
         status: 'active',
         customerName: customerName.trim() || 'Unknown Customer',
         phone: phone || undefined,
-        workPhone: workPhone || undefined,
         street: address.trim(),
         city: city.trim(),
         state: state.trim() || 'FL',
         zip: zip.trim(),
-        serialNumber: serialNumber || undefined,
-        poNumber: poNumber || undefined,
-        model: scannedData?.model || undefined,
-        lotNumber: lotNumber || undefined,
-        salesperson: salesperson || undefined,
-        setupBy: scannedData?.setupBy || undefined,
+        serialNumber: serialNumber.trim().toUpperCase(),
       });
-
-      // Navigate to the new job
       navigate(`/job/${job.id}`);
     } catch (error: any) {
-      console.error('Error creating job:', error);
       alert(`Failed to create job: ${error?.message || 'Unknown error'}`);
     } finally {
       setCreating(false);
     }
   };
 
-  const resetForm = () => {
-    setScannedData(null);
-    setJobType(null);
-    setSerialNumber('');
-    setCustomerName('');
-    setAddress('');
-    setCity('');
-    setState('FL');
-    setZip('');
-    setPhone('');
-    setWorkPhone('');
-    setPoNumber('');
-    setLotNumber('');
-    setSalesperson('');
-  };
-
-  if (showScanner) {
-    return (
-      <WorkOrderScanner
-        onScanComplete={handleScanComplete}
-        onClose={() => setShowScanner(false)}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-950 pb-24">
-      {/* Header */}
       <div className="px-4 pt-4 pb-2">
         <h2 className="text-2xl font-bold text-gray-100">New Job</h2>
-        <p className="text-sm text-gray-500 mt-0.5">Scan paperwork or enter details manually</p>
+        <p className="text-sm text-gray-500 mt-0.5">Snap the paperwork, enter the basics</p>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Step 1: Scan or Enter */}
-        {!scannedData && !serialNumber && (
-          <>
-            <Card className="bg-gradient-to-br from-blue-600 to-blue-800 border-blue-700">
-              <button
-                onClick={() => setShowScanner(true)}
-                className="w-full text-left"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-white/20 rounded-xl">
-                    <ScanLine className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-lg font-semibold text-white">Scan Service Form</h2>
-                    <p className="text-blue-200 text-sm">
-                      Snap a photo of Matt's paperwork
-                    </p>
-                  </div>
-                  <ChevronRight className="w-6 h-6 text-blue-300" />
+        
+        {/* Photo Section */}
+        {!photoData ? (
+          <Card className="bg-gradient-to-br from-blue-600 to-blue-800 border-blue-700">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-white/20 rounded-xl">
+                  <Camera className="w-7 h-7 text-white" />
                 </div>
-              </button>
-            </Card>
-
-            <div className="text-center text-gray-600 text-sm">— or enter manually —</div>
-
-            <Card>
-              <h3 className="font-medium text-gray-200 mb-3">Manual Entry</h3>
-              <Input
-                label="Serial Number"
-                placeholder="e.g., N1-17670AB"
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
-              />
-              {serialNumber && (
-                <Button 
-                  onClick={() => setScannedData({ rawText: '', serialNumber })}
-                  className="mt-3"
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Photo the Paperwork</h2>
+                  <p className="text-blue-200 text-sm">Keeps a digital copy with the job</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => cameraRef.current?.click()}
                   fullWidth
+                  className="bg-white/20 hover:bg-white/30 border-0"
                 >
-                  Continue
+                  <Camera className="w-4 h-4 mr-2" />
+                  Take Photo
                 </Button>
-              )}
-            </Card>
-          </>
+                <Button
+                  onClick={() => galleryRef.current?.click()}
+                  fullWidth
+                  variant="secondary"
+                  className="bg-white/10 hover:bg-white/20 border-0 text-white"
+                >
+                  <Image className="w-4 h-4 mr-2" />
+                  Gallery
+                </Button>
+              </div>
+              
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
+              <input ref={galleryRef} type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
+            </div>
+          </Card>
+        ) : (
+          <Card className="p-0 overflow-hidden">
+            <div className="relative">
+              <img src={photoData} alt="Form" className="w-full max-h-48 object-cover" />
+              <button
+                onClick={() => setPhotoData(null)}
+                className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <div className="absolute bottom-2 left-2 bg-green-500/90 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" />
+                Photo saved
+              </div>
+            </div>
+          </Card>
         )}
 
-        {/* Step 2: Review/Edit Data */}
-        {(scannedData || serialNumber) && !jobType && (
+        {/* Quick Entry */}
+        <Card>
+          <h3 className="font-medium text-gray-200 mb-3">Job Details</h3>
+          
+          <div className="space-y-3">
+            <Input
+              label="Serial Number *"
+              placeholder="e.g., N1-17670AB"
+              value={serialNumber}
+              onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
+            />
+            <Input
+              label="Customer Name"
+              placeholder="First Last"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+            />
+            <Input
+              label="Address"
+              placeholder="Street address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            <div className="grid grid-cols-3 gap-2">
+              <Input label="City" value={city} onChange={(e) => setCity(e.target.value)} />
+              <Input label="State" value={state} onChange={(e) => setState(e.target.value)} />
+              <Input label="Zip" value={zip} onChange={(e) => setZip(e.target.value)} />
+            </div>
+            <Input
+              label="Phone"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+        </Card>
+
+        {/* Job Type Selection */}
+        {serialNumber.trim() && (
           <Card>
-            <div className="flex items-center gap-2 mb-4">
-              <Zap className="w-5 h-5 text-yellow-400" />
-              <h3 className="font-medium text-gray-100">Job Details</h3>
-              <button onClick={resetForm} className="ml-auto text-sm text-gray-500 hover:text-gray-300">
-                Reset
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <Input label="Serial Number" value={serialNumber} onChange={(e) => setSerialNumber(e.target.value.toUpperCase())} />
-              <Input label="Customer Name" placeholder="First Last" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-              <Input label="Address" placeholder="Street address" value={address} onChange={(e) => setAddress(e.target.value)} />
-              
-              <div className="grid grid-cols-3 gap-2">
-                <Input label="City" value={city} onChange={(e) => setCity(e.target.value)} />
-                <Input label="State" value={state} onChange={(e) => setState(e.target.value)} />
-                <Input label="Zip" value={zip} onChange={(e) => setZip(e.target.value)} />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <Input label="Home Phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                <Input label="Work Phone" type="tel" value={workPhone} onChange={(e) => setWorkPhone(e.target.value)} />
-              </div>
-              
-              <div className="border-t border-gray-800 pt-3 mt-3">
-                <p className="text-xs text-gray-500 mb-2">Optional Info</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="Lot #" value={lotNumber} onChange={(e) => setLotNumber(e.target.value)} />
-                  <Input label="Salesperson" value={salesperson} onChange={(e) => setSalesperson(e.target.value)} />
-                </div>
-                <Input label="P.O. #" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} className="mt-2" />
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-2">
-              <p className="text-sm font-medium text-gray-300">What type of job?</p>
-              
+            <p className="text-sm font-medium text-gray-300 mb-3">Job Type</p>
+            
+            <div className="space-y-2">
               <button
-                onClick={() => setJobType('walkthrough')}
-                className="w-full flex items-center gap-3 p-4 border-2 border-gray-700 rounded-xl hover:border-blue-500 transition-colors bg-gray-800/50"
+                onClick={() => setJobType(jobType === 'walkthrough' ? null : 'walkthrough')}
+                className={`w-full flex items-center gap-3 p-4 border-2 rounded-xl transition-colors ${
+                  jobType === 'walkthrough' 
+                    ? 'border-blue-500 bg-blue-500/10' 
+                    : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                }`}
               >
-                <ClipboardList className="w-6 h-6 text-blue-400" />
+                <ClipboardList className={`w-6 h-6 ${jobType === 'walkthrough' ? 'text-blue-400' : 'text-gray-500'}`} />
                 <div className="text-left flex-1">
                   <p className="font-medium text-gray-100">Walk-Through</p>
                   <p className="text-sm text-gray-500">$400 flat — Initial inspection</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-600" />
+                {jobType === 'walkthrough' && <Check className="w-5 h-5 text-blue-400" />}
               </button>
               
               <button
-                onClick={() => setJobType('work_order')}
-                className="w-full flex items-center gap-3 p-4 border-2 border-gray-700 rounded-xl hover:border-orange-500 transition-colors bg-gray-800/50"
+                onClick={() => setJobType(jobType === 'work_order' ? null : 'work_order')}
+                className={`w-full flex items-center gap-3 p-4 border-2 rounded-xl transition-colors ${
+                  jobType === 'work_order' 
+                    ? 'border-orange-500 bg-orange-500/10' 
+                    : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                }`}
               >
-                <Wrench className="w-6 h-6 text-orange-400" />
+                <Wrench className={`w-6 h-6 ${jobType === 'work_order' ? 'text-orange-400' : 'text-gray-500'}`} />
                 <div className="text-left flex-1">
                   <p className="font-medium text-gray-100">Return Work Order</p>
                   <p className="text-sm text-gray-500">$40/hr + mileage — Fix items</p>
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-600" />
+                {jobType === 'work_order' && <Check className="w-5 h-5 text-orange-400" />}
               </button>
             </div>
           </Card>
         )}
 
-        {/* Step 3: Confirm and Create */}
-        {jobType && (
-          <Card className="bg-green-950/30 border-green-800">
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-green-500/20 rounded-full mb-3">
-                {jobType === 'walkthrough' ? (
-                  <ClipboardList className="w-6 h-6 text-green-400" />
-                ) : (
-                  <Wrench className="w-6 h-6 text-green-400" />
-                )}
-              </div>
-              <h3 className="font-semibold text-gray-100">
-                Ready to start {jobType === 'walkthrough' ? 'Walk-Through' : 'Work Order'}
-              </h3>
-              <p className="text-sm text-gray-400 mt-1">
-                {customerName || 'Customer'} • {serialNumber || 'No Serial'}
-              </p>
-            </div>
-
-            <Button 
-              onClick={createJob}
-              loading={creating}
-              fullWidth
-              className="mt-4"
-            >
-              <Check className="w-5 h-5 mr-2" />
-              Create Job
-            </Button>
-            
-            <button
-              onClick={() => setJobType(null)}
-              className="w-full text-center text-sm text-gray-500 mt-2 hover:text-gray-300"
-            >
-              ← Change type
-            </button>
-          </Card>
+        {/* Create Button */}
+        {jobType && serialNumber.trim() && (
+          <Button
+            onClick={createJob}
+            loading={creating}
+            fullWidth
+            size="lg"
+          >
+            <Check className="w-5 h-5 mr-2" />
+            Create {jobType === 'walkthrough' ? 'Walk-Through' : 'Work Order'}
+          </Button>
         )}
       </div>
     </div>
